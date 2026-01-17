@@ -11,7 +11,7 @@ Key decisions:
 - Rename Python package to `takopi_slack_plugin` to align with the new distribution name.
 
 State:
-- In progress; tag `v0.0.5` pushed, awaiting publish and install.
+- In progress; user requested rollback of Slack context shortcuts and wants a friendlier Slack UI.
 
 Done:
 - Located Slack transport source and packaging in `../takopi/packages/takopi-transport-slack`.
@@ -39,13 +39,13 @@ Done:
 - Created and pushed tag `v0.0.5`.
 
 Now:
-- Confirm publish workflow run on `v0.0.5` and reinstall package.
+- Review Slack context shortcut changes, revert them, and propose a better Slack UI approach.
 
 Next:
-- Verify Slack context shortcuts with `0.0.5`.
+- Align on the desired Slack UI (slash command, modal, app home) before implementing.
 
 Open questions (UNCONFIRMED if needed):
-- Should Slack use mention + slash syntax (e.g. `@takopi /project @branch`) given Slack slash commands aren’t delivered (UNCONFIRMED)?
+- What “friendly interface” means for Slack (slash command, modal, app home, buttons) (UNCONFIRMED)?
 
 Working set (files/ids/commands):
 - CONTINUITY.md
