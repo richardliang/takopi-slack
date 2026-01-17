@@ -13,9 +13,6 @@ class SlackTransportSettings:
     channel_id: str
     app_token: str
     message_overflow: Literal["trim", "split"] = "trim"
-    reply_in_thread: bool = False
-    require_mention: bool = False
-    session_mode: Literal["stateless", "thread"] = "stateless"
 
     @classmethod
     def from_config(
@@ -45,33 +42,11 @@ class SlackTransportSettings:
                 "expected 'trim' or 'split'."
             )
 
-        reply_in_thread = _optional_bool(
-            config, "reply_in_thread", config_path=config_path, default=False
-        )
-        require_mention = _optional_bool(
-            config, "require_mention", config_path=config_path, default=False
-        )
-        session_mode = config.get("session_mode", "stateless")
-        if not isinstance(session_mode, str):
-            raise ConfigError(
-                f"Invalid `transports.slack.session_mode` in {config_path}; "
-                "expected a string."
-            )
-        session_mode = session_mode.strip()
-        if session_mode not in {"stateless", "thread"}:
-            raise ConfigError(
-                f"Invalid `transports.slack.session_mode` in {config_path}; "
-                "expected 'stateless' or 'thread'."
-            )
-
         return cls(
             bot_token=bot_token,
             channel_id=channel_id,
             app_token=app_token,
             message_overflow=message_overflow,
-            reply_in_thread=reply_in_thread,
-            require_mention=require_mention,
-            session_mode=session_mode,
         )
 
 
@@ -84,19 +59,3 @@ def _require_str(config: dict[str, Any], key: str, *, config_path: Path) -> str:
         )
     return value.strip()
 
-
-def _optional_bool(
-    config: dict[str, Any],
-    key: str,
-    *,
-    config_path: Path,
-    default: bool,
-) -> bool:
-    if key not in config:
-        return default
-    value = config.get(key)
-    if isinstance(value, bool):
-        return value
-    raise ConfigError(
-        f"Invalid `transports.slack.{key}` in {config_path}; expected a boolean."
-    )

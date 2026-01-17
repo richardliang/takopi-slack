@@ -214,5 +214,5 @@ async def open_socket_url(
         )
     url = payload.get("url")
     if not isinstance(url, str) or not url.strip():
-        raise SlackApiError("Slack socket mode missing url")
+        raise SlackApiError("Slack socket url missing")
     return url.strip()

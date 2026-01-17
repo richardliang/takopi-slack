@@ -134,20 +134,16 @@ class SlackBackend(TransportBackend):
             presenter=presenter,
             final_notify=final_notify,
         )
-        thread_store = None
-        if settings.session_mode == "thread":
-            thread_store = SlackThreadSessionStore(
-                resolve_sessions_path(config_path)
-            )
+        thread_store = SlackThreadSessionStore(
+            resolve_sessions_path(config_path)
+        )
         cfg = SlackBridgeConfig(
             client=client,
             runtime=runtime,
             channel_id=settings.channel_id,
+            app_token=settings.app_token,
             startup_msg=startup_msg,
             exec_cfg=exec_cfg,
-            reply_in_thread=settings.reply_in_thread,
-            require_mention=settings.require_mention,
-            app_token=settings.app_token,
             thread_store=thread_store,
         )
 

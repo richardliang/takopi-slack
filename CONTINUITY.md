@@ -1,5 +1,5 @@
 Goal (incl. success criteria):
-- Require Socket Mode only (remove polling) and clean up unused Slack transport code.
+- Apply refactors (socket naming, single-pass directive parsing, JsonStateStore, hard-coded behaviors), update README, and publish.
 
 Constraints/Assumptions:
 - Follow workspace instructions in `AGENTS.md`, including Continuity Ledger updates each turn.
@@ -11,7 +11,7 @@ Key decisions:
 - Rename Python package to `takopi_slack_plugin` to align with the new distribution name.
 
 State:
-- In progress; Slack context shortcut changes reverted on `main`; tag `v0.0.5` still exists on remote; `v0.0.6`, `v0.0.7`, `v0.0.8`, `v0.0.9`, and `v0.0.10` tagged and pushed.
+- In progress; local refactor changes underway per request; no push yet.
 
 Done:
 - Located Slack transport source and packaging in `../takopi/packages/takopi-transport-slack`.
@@ -54,12 +54,13 @@ Done:
 - Simplified Slack config to minimal required fields and fixed app_token ordering error.
 - Bumped version to `0.0.10`, committed, and pushed to `main`.
 - Created and pushed tag `v0.0.10`.
+- Removed leftover legacy Slack config reads (poll_interval/socket_mode).
 
 Now:
-- Share minimal required Slack config and confirm the dataclass error is fixed.
+- Finish refactors and update README/version before pushing.
 
 Next:
-- Confirm any further Slack UX changes (slash commands/app home) if needed.
+- Publish release and confirm any follow-up UX changes.
 
 Open questions (UNCONFIRMED if needed):
 - None.

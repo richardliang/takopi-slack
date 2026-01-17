@@ -16,6 +16,7 @@ from takopi.api import (
     IncomingMessage as RunnerIncomingMessage,
     MessageRef,
     RenderedMessage,
+    RunContext,
     RunnerUnavailableError,
     RunningTasks,
     SendOptions,
@@ -28,6 +29,7 @@ from takopi.api import (
     reset_run_base_dir,
     set_run_base_dir,
 )
+from takopi.directives import parse_directives
 
 from .client import SlackApiError, SlackClient, SlackMessage, open_socket_url
 from .thread_sessions import SlackThreadSessionStore
@@ -97,8 +99,6 @@ class SlackBridgeConfig:
     app_token: str
     startup_msg: str
     exec_cfg: ExecBridgeConfig
-    reply_in_thread: bool = False
-    require_mention: bool = False
     thread_store: SlackThreadSessionStore | None = None
 
 
@@ -323,66 +323,12 @@ def _mention_regex(bot_user_id: str) -> re.Pattern[str]:
     return re.compile(rf"<@{escaped}(\|[^>]+)?>")
 
 
-def _strip_bot_mention(
-    text: str, *, bot_user_id: str | None, require_mention: bool
-) -> tuple[str, bool]:
+def _strip_bot_mention(text: str, *, bot_user_id: str | None) -> str:
     cleaned = text
-    if require_mention:
-        if bot_user_id is None:
-            return text, True
+    if bot_user_id is not None:
         pattern = _mention_regex(bot_user_id)
-        if not pattern.search(text):
-            return text, False
         cleaned = pattern.sub("", text)
-    return cleaned.strip(), True
-
-
-def _has_required_directives(text: str, runtime: TransportRuntime) -> bool:
-    if not text:
-        return False
-    lines = text.splitlines()
-    idx = next((i for i, line in enumerate(lines) if line.strip()), None)
-    if idx is None:
-        return False
-    tokens = lines[idx].lstrip().split()
-    if not tokens:
-        return False
-
-    engine_ids = {engine.lower() for engine in runtime.engine_ids}
-    project_ids = {alias.lower() for alias in runtime.project_aliases()}
-
-    has_project = False
-    has_branch = False
-    consumed = 0
-
-    for token in tokens:
-        if token.startswith("/"):
-            name = token[1:]
-            if "@" in name:
-                name = name.split("@", 1)[0]
-            if not name:
-                break
-            key = name.lower()
-            if key in engine_ids:
-                consumed += 1
-                continue
-            if key in project_ids:
-                has_project = True
-                consumed += 1
-                continue
-            break
-        if token.startswith("@"):
-            value = token[1:]
-            if not value:
-                break
-            has_branch = True
-            consumed += 1
-            continue
-        break
-
-    if consumed == 0:
-        return False
-    return has_project and has_branch
+    return cleaned.strip()
 
 
 def _should_skip_message(message: SlackMessage, bot_user_id: str | None) -> bool:
@@ -542,24 +488,14 @@ async def _handle_slack_message(
     running_tasks: RunningTasks,
 ) -> None:
     channel_id = cfg.channel_id
-    thread_id = message.thread_ts if cfg.reply_in_thread and message.thread_ts else None
-    if cfg.reply_in_thread and thread_id is None:
-        thread_id = message.ts
-    if not _has_required_directives(text, cfg.runtime):
-        return
+    thread_id = message.thread_ts or message.ts
     thread_store = cfg.thread_store
-    ambient_context = None
-    if thread_store is not None and thread_id is not None:
-        ambient_context = await thread_store.get_context(
-            channel_id=channel_id,
-            thread_id=thread_id,
-        )
     try:
-        resolved = cfg.runtime.resolve_message(
-            text=text,
-            reply_text=None,
-            ambient_context=ambient_context,
-            chat_id=None,
+        # Reuse Takopi's directive parser to avoid double parsing.
+        directives = parse_directives(
+            text,
+            engine_ids=cfg.runtime.engine_ids,
+            projects=cfg.runtime._projects,
         )
     except DirectiveError as exc:
         await _send_plain(
@@ -572,23 +508,17 @@ async def _handle_slack_message(
         )
         return
 
-    if (
-        thread_store is not None
-        and thread_id is not None
-        and resolved.context is not None
-        and resolved.context_source == "directives"
-    ):
-        await thread_store.set_context(
-            channel_id=channel_id,
-            thread_id=thread_id,
-            context=resolved.context,
-        )
+    if directives.project is None or directives.branch is None:
+        return
 
-    prompt = resolved.prompt
+    prompt = directives.prompt
     if not prompt.strip():
         return
 
-    resume_token = resolved.resume_token
+    context = RunContext(project=directives.project, branch=directives.branch)
+    engine_override = directives.engine
+    # Router access avoids re-parsing directives in runtime.resolve_message.
+    resume_token = cfg.runtime._router.resolve_resume(prompt, None)
     if thread_store is not None and thread_id is not None:
         if resume_token is not None:
             await thread_store.set_resume(
@@ -598,8 +528,8 @@ async def _handle_slack_message(
             )
         else:
             engine_for_session = cfg.runtime.resolve_engine(
-                engine_override=resolved.engine_override,
-                context=resolved.context,
+                engine_override=engine_override,
+                context=context,
             )
             resume_token = await thread_store.get_resume(
                 channel_id=channel_id,
@@ -628,8 +558,8 @@ async def _handle_slack_message(
         user_msg_id=message.ts,
         text=prompt,
         resume_token=resume_token,
-        context=resolved.context,
-        engine_override=resolved.engine_override,
+        context=context,
+        engine_override=engine_override,
         thread_id=thread_id,
         on_thread_known=on_thread_known,
     )
@@ -656,17 +586,7 @@ async def _safe_handle_slack_message(
         )
 
 
-def _resolve_mention_requirement(
-    cfg: SlackBridgeConfig, bot_user_id: str | None
-) -> bool:
-    mention_required = cfg.require_mention
-    if mention_required and bot_user_id is None:
-        logger.warning("slack.mention_disabled", reason="bot_user_id missing")
-        mention_required = False
-    return mention_required
-
-
-async def _run_socket_mode_loop(
+async def _run_socket_loop(
     cfg: SlackBridgeConfig,
     *,
     bot_user_id: str | None,
@@ -677,7 +597,6 @@ async def _run_socket_mode_loop(
         )
 
     running_tasks: RunningTasks = {}
-    mention_required = _resolve_mention_requirement(cfg, bot_user_id)
     backoff_s = 1.0
 
     async with anyio.create_task_group() as tg:
@@ -735,13 +654,10 @@ async def _run_socket_mode_loop(
                         msg = SlackMessage.from_api(event)
                         if _should_skip_message(msg, bot_user_id):
                             continue
-                        cleaned, allowed = _strip_bot_mention(
+                        cleaned = _strip_bot_mention(
                             msg.text or "",
                             bot_user_id=bot_user_id,
-                            require_mention=mention_required,
                         )
-                        if not allowed:
-                            continue
                         if not cleaned.strip():
                             continue
                         tg.start_soon(
@@ -776,4 +692,4 @@ async def run_main_loop(
     except SlackApiError as exc:
         logger.warning("slack.auth_test_failed", error=str(exc))
 
-    await _run_socket_mode_loop(cfg, bot_user_id=bot_user_id)
+    await _run_socket_loop(cfg, bot_user_id=bot_user_id)
