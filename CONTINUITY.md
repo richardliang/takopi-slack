@@ -11,7 +11,7 @@ Key decisions:
 - Rename Python package to `takopi_slack_plugin` to align with the new distribution name.
 
 State:
-- In progress; `v0.0.12` tagged and pushed; adding thread reply context reuse.
+- Completed; `v0.0.13` tagged and pushed with thread reply context reuse.
 
 Done:
 - Located Slack transport source and packaging in `../takopi/packages/takopi-transport-slack`.
@@ -68,9 +68,11 @@ Done:
 - Added cancel button blocks + interactive handler and enabled message splitting by default.
 - Updated README for slash command usage, shortcuts, cancel button, and message_overflow.
 - Bumped version to `0.0.12`, committed, pushed to `main`, and tagged `v0.0.12`.
+- Updated Slack thread handling to reuse stored context for replies without directives.
+- Bumped version to `0.0.13`, committed, pushed to `main`, and tagged `v0.0.13`.
 
 Now:
-- Bump version, commit, push, and tag to publish thread-reply context change.
+- Await publish workflow and support install/config questions.
 
 Now:
 - Await publish workflow and confirm release if needed.
