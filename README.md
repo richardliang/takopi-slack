@@ -1,36 +1,54 @@
 # takopi-slack-plugin
 
-Slack transport plugin for Takopi. Uses Slack socket connections only, and
-responds in a single channel or DM.
+slack transport plugin for takopi. socket mode only, replies in threads, and
+stores per-thread context + resume tokens.
 
-## Requirements
+## features
 
-- Python 3.14+
+- socket mode only; listens in a single channel or dm
+- thread sessions (context + resume tokens) stored at
+  `~/.takopi/slack_thread_sessions_state.json`
+- slash commands + message shortcuts for overrides and plugin commands
+- cancel button on progress messages
+- message overflow: split or trim long responses
+
+## requirements
+
+- python 3.14+
 - takopi >=0.20.0
-- Slack bot token with `chat:write`, `commands`, `app_mentions:read`, and
+- slack bot token with `chat:write`, `commands`, `app_mentions:read`, and
   the matching history scopes for your channel type (`channels:history`,
   `groups:history`, `im:history`, `mpim:history`)
-- Slack app token (`xapp-`) with `connections:write`
+- slack app token (`xapp-`) with `connections:write`
 
-## Install
+## install
 
-Install into the same Python environment as Takopi.
-
-Using uv tool installs:
+install into the same python environment as takopi.
 
 ```sh
 uv tool install -U takopi --with takopi-slack-plugin
 ```
 
-Using a virtualenv:
+or, with a virtualenv:
 
 ```sh
 pip install takopi-slack-plugin
 ```
 
-## Configure
+## setup
 
-Add to your `~/.takopi/takopi.toml`:
+create a slack app and enable socket mode.
+
+1. create an app-level token with `connections:write`
+2. add the bot scopes listed above and install the app
+3. enable events for `app_mention` plus the right `message.*` event for your
+   channel type
+4. enable interactivity & shortcuts, create a slash command (for example
+   `/takopi`), and optionally add a message shortcut with callback id
+   `takopi:<plugin_id>`
+5. invite the bot to the target channel
+
+add to `~/.takopi/takopi.toml`:
 
 ```toml
 transport = "slack"
@@ -42,35 +60,38 @@ channel_id = "C12345678"
 message_overflow = "split"
 ```
 
-Set `message_overflow = "trim"` if you prefer truncation instead of followup
-messages.
+set `message_overflow = "trim"` if you prefer truncation instead of followups.
 
-### Required Directives
+if you use a plugin allowlist, enable this distribution:
 
-New root messages must include both a project and worktree directive in the
-first line. Messages that do not match are ignored.
+```toml
+[plugins]
+enabled = ["takopi-slack-plugin"]
+```
 
-Thread replies reuse the stored context, so you can reply without repeating
+## usage
+
+```sh
+takopi --transport slack
+```
+
+if you already set `transport = "slack"`, `takopi` is enough.
+
+root messages must include both a project and worktree directive in the first
+line. messages that do not match are ignored.
+
+example:
+
+```
+@takopi /zkp2p-clients @feat/web/monad-usdt0 add a retry to the api call
+```
+
+thread replies reuse stored context, so you can reply without repeating
 directives.
 
-Example:
+slash command built-ins:
 
 ```
-@takopi /zkp2p-clients @feat/web/monad-usdt0 add a retry to the API call
-```
-
-### Slash Command + Shortcuts
-
-Configure a single slash command (for example `/takopi`) and optionally a
-message shortcut.
-
-Enable Slack "Slash Commands" and "Interactivity & Shortcuts" for the app so
-Socket Mode can deliver command payloads and button/shortcut actions.
-
-Slash command usage:
-
-```
-/takopi <plugin_id> [args...]
 /takopi status
 /takopi engine <engine|clear>
 /takopi model <engine> <model|clear>
@@ -78,59 +99,12 @@ Slash command usage:
 /takopi session clear
 ```
 
-Message shortcut:
+message shortcuts pass the selected message text as arguments to the plugin
+command identified by `takopi:<plugin_id>`.
 
-- Create a message shortcut and set its Callback ID to `takopi:<plugin_id>`.
-- The selected message text is passed as the command arguments.
+progress messages include a cancel button; enable interactivity & shortcuts so
+clicks are delivered in socket mode.
 
-### Cancel Button
+## license
 
-Progress messages include a cancel button. Enable Slack "Interactivity &
-Shortcuts" so button clicks are delivered in Socket Mode.
-
-### Socket Connections (required)
-
-Enable Slack socket connections in your app and create an app-level token with
-`connections:write`, then configure:
-
-```toml
-[transports.slack]
-bot_token = "xoxb-..."
-app_token = "xapp-..."
-channel_id = "C12345678"
-```
-
-Enable Slack events for `message.channels`, `message.groups`, `message.im`,
-`message.mpim`, and/or `app_mention`, depending on your channel type.
-
-### Thread Sessions
-
-Takopi always replies in threads and stores resume tokens per thread at
-`~/.takopi/slack_thread_sessions_state.json`.
-
-Thread state also stores per-thread overrides for default engine/model/
-reasoning. Use the `/takopi` slash command to manage them.
-Replies inside a thread will automatically use that stored context.
-
-If you use a plugin allowlist, enable this distribution:
-
-```toml
-[plugins]
-enabled = ["takopi-slack-plugin"]
-```
-
-## Start
-
-Run Takopi with the Slack transport:
-
-```sh
-takopi --transport slack
-```
-
-If you already set `transport = "slack"` in the config, `takopi` is enough.
-
-Optional interactive setup:
-
-```sh
-takopi --onboard --transport slack
-```
+mit

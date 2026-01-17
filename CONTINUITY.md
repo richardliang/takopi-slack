@@ -1,5 +1,5 @@
 Goal (incl. success criteria):
-- Allow thread replies without directives (reuse stored context) and publish a new release.
+- Align README with main takopi repo style, ensure MIT license, and refactor Slack code for DRY/simplicity.
 
 Constraints/Assumptions:
 - Follow workspace instructions in `AGENTS.md`, including Continuity Ledger updates each turn.
@@ -11,9 +11,8 @@ Key decisions:
 - Rename Python package to `takopi_slack_plugin` to align with the new distribution name.
 
 State:
-- Completed; `v0.0.13` tagged and pushed with thread reply context reuse.
+- Docs and DRY refactor complete; ready to commit/publish.
 
-Done:
 - Located Slack transport source and packaging in `../takopi/packages/takopi-transport-slack`.
 - Copied Slack transport package files into this workspace.
 - Updated README with install/config/start instructions.
@@ -70,26 +69,24 @@ Done:
 - Bumped version to `0.0.12`, committed, pushed to `main`, and tagged `v0.0.12`.
 - Updated Slack thread handling to reuse stored context for replies without directives.
 - Bumped version to `0.0.13`, committed, pushed to `main`, and tagged `v0.0.13`.
+- Refactored Slack bridge to reuse helper functions for thread context/overrides and align keyword-only handler signatures.
+- Rewrote README to match takopi main style and added license section (MIT already present).
 
 Now:
-- Await publish workflow and support install/config questions.
-
-Now:
-- Await publish workflow and confirm release if needed.
+- Commit changes, bump version if needed, push to main, and publish.
 
 Next:
-- Provide install/config commands or troubleshoot if publish fails.
+- Confirm publish workflow ran successfully.
 
 Open questions (UNCONFIRMED if needed):
 - None.
 
 Working set (files/ids/commands):
 - CONTINUITY.md
-- /home/ubuntu/zkp2p/takopi/packages/takopi-transport-slack
-- pyproject.toml
+- /home/ubuntu/zkp2p/takopi/readme.md
 - README.md
-- src/takopi_slack_plugin
-- .github/workflows/workflow.yml
+- LICENSE
+- pyproject.toml
 - src/takopi_slack_plugin/bridge.py
 - src/takopi_slack_plugin/client.py
 - src/takopi_slack_plugin/config.py

@@ -4,7 +4,7 @@ import json
 import re
 import time
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Awaitable, Callable
 from urllib.parse import parse_qs
 
 import anyio
@@ -109,6 +109,14 @@ class SlackBridgeConfig:
     startup_msg: str
     exec_cfg: ExecBridgeConfig
     thread_store: SlackThreadSessionStore | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class CommandContext:
+    default_context: RunContext | None
+    default_engine_override: str | None
+    engine_overrides_resolver: Callable[[str], Awaitable[EngineRunOptions | None]]
+    on_thread_known: Callable[[Any, anyio.Event], Awaitable[None]] | None
 
 
 class SlackTransport:
@@ -537,6 +545,7 @@ async def _send_startup(cfg: SlackBridgeConfig) -> None:
 
 async def _handle_slack_message(
     cfg: SlackBridgeConfig,
+    *,
     message: SlackMessage,
     text: str,
     running_tasks: RunningTasks,
@@ -604,7 +613,6 @@ async def _handle_slack_message(
         engine_override=engine_override,
         context=context,
     )
-    run_options: EngineRunOptions | None = None
     if thread_store is not None and thread_id is not None:
         if resume_token is not None:
             await thread_store.set_resume(
@@ -618,34 +626,17 @@ async def _handle_slack_message(
                 thread_id=thread_id,
                 engine=engine_for_session,
             )
-        model_override = await thread_store.get_model_override(
-            channel_id=channel_id,
-            thread_id=thread_id,
-            engine=engine_for_session,
-        )
-        reasoning_override = await thread_store.get_reasoning_override(
-            channel_id=channel_id,
-            thread_id=thread_id,
-            engine=engine_for_session,
-        )
-        if model_override or reasoning_override:
-            run_options = EngineRunOptions(
-                model=model_override,
-                reasoning=reasoning_override,
-            )
-
-    on_thread_known = None
-    if thread_store is not None and thread_id is not None:
-
-        async def _note_resume(token, done: anyio.Event) -> None:
-            _ = done
-            await thread_store.set_resume(
-                channel_id=channel_id,
-                thread_id=thread_id,
-                token=token,
-            )
-
-        on_thread_known = _note_resume
+    run_options = await _resolve_run_options(
+        thread_store,
+        channel_id=channel_id,
+        thread_id=thread_id,
+        engine_id=engine_for_session,
+    )
+    on_thread_known = _make_resume_saver(
+        thread_store,
+        channel_id=channel_id,
+        thread_id=thread_id,
+    )
 
     await run_engine(
         exec_cfg=cfg.exec_cfg,
@@ -665,6 +656,7 @@ async def _handle_slack_message(
 
 async def _safe_handle_slack_message(
     cfg: SlackBridgeConfig,
+    *,
     message: SlackMessage,
     text: str,
     running_tasks: RunningTasks,
@@ -712,6 +704,96 @@ def _extract_command_text(tokens: tuple[str, ...], raw_text: str) -> tuple[str, 
     return command_id, args_text
 
 
+def _parse_thread_ts(value: object) -> str | None:
+    if isinstance(value, str) and value.strip():
+        return value
+    return None
+
+
+async def _resolve_run_options(
+    thread_store: SlackThreadSessionStore | None,
+    *,
+    channel_id: str,
+    thread_id: str | None,
+    engine_id: str,
+) -> EngineRunOptions | None:
+    if thread_store is None or thread_id is None:
+        return None
+    model = await thread_store.get_model_override(
+        channel_id=channel_id,
+        thread_id=thread_id,
+        engine=engine_id,
+    )
+    reasoning = await thread_store.get_reasoning_override(
+        channel_id=channel_id,
+        thread_id=thread_id,
+        engine=engine_id,
+    )
+    if model or reasoning:
+        return EngineRunOptions(model=model, reasoning=reasoning)
+    return None
+
+
+def _make_resume_saver(
+    thread_store: SlackThreadSessionStore | None,
+    *,
+    channel_id: str,
+    thread_id: str | None,
+):
+    if thread_store is None or thread_id is None:
+        return None
+
+    async def _note_resume(token, done: anyio.Event) -> None:
+        _ = done
+        await thread_store.set_resume(
+            channel_id=channel_id,
+            thread_id=thread_id,
+            token=token,
+        )
+
+    return _note_resume
+
+
+async def _resolve_command_context(
+    cfg: SlackBridgeConfig,
+    *,
+    channel_id: str,
+    thread_id: str,
+) -> CommandContext | None:
+    thread_store = cfg.thread_store
+    if thread_store is None:
+        return None
+    default_context = await thread_store.get_context(
+        channel_id=channel_id,
+        thread_id=thread_id,
+    )
+    default_engine_override = await thread_store.get_default_engine(
+        channel_id=channel_id,
+        thread_id=thread_id,
+    )
+
+    async def engine_overrides_resolver(
+        engine_id: str,
+    ) -> EngineRunOptions | None:
+        return await _resolve_run_options(
+            thread_store,
+            channel_id=channel_id,
+            thread_id=thread_id,
+            engine_id=engine_id,
+        )
+    on_thread_known = _make_resume_saver(
+        thread_store,
+        channel_id=channel_id,
+        thread_id=thread_id,
+    )
+    return CommandContext(
+        default_context=default_context,
+        default_engine_override=default_engine_override,
+        engine_overrides_resolver=engine_overrides_resolver,
+        on_thread_known=on_thread_known,
+    )
+
+
 async def _handle_slash_command(
     cfg: SlackBridgeConfig,
     payload: dict[str, Any],
@@ -722,8 +804,8 @@ async def _handle_slash_command(
         return
     text = payload.get("text") or ""
     response_url = payload.get("response_url")
-    thread_ts = payload.get("thread_ts") or payload.get("message_ts")
-    thread_id = _session_thread_id(channel_id, thread_ts if isinstance(thread_ts, str) else None)
+    thread_ts = _parse_thread_ts(payload.get("thread_ts") or payload.get("message_ts"))
+    thread_id = _session_thread_id(channel_id, thread_ts)
 
     tokens = split_command_args(text)
     if not tokens:
@@ -933,43 +1015,13 @@ async def _handle_slash_command(
             text="running...",
         )
 
-    default_context = await thread_store.get_context(
+    command_context = await _resolve_command_context(
+        cfg,
         channel_id=channel_id,
         thread_id=thread_id,
     )
-    default_engine_override = await thread_store.get_default_engine(
-        channel_id=channel_id,
-        thread_id=thread_id,
-    )
-
-    async def engine_overrides_resolver(
-        engine_id: str,
-    ) -> EngineRunOptions | None:
-        model = await thread_store.get_model_override(
-            channel_id=channel_id,
-            thread_id=thread_id,
-            engine=engine_id,
-        )
-        reasoning = await thread_store.get_reasoning_override(
-            channel_id=channel_id,
-            thread_id=thread_id,
-            engine=engine_id,
-        )
-        if model or reasoning:
-            return EngineRunOptions(model=model, reasoning=reasoning)
-        return None
-
-    on_thread_known = None
-
-    async def _note_resume(token, done: anyio.Event) -> None:
-        _ = done
-        await thread_store.set_resume(
-            channel_id=channel_id,
-            thread_id=thread_id,
-            token=token,
-        )
-
-    on_thread_known = _note_resume
+    if command_context is None:
+        return
 
     handled = await dispatch_command(
         cfg,
@@ -978,14 +1030,14 @@ async def _handle_slash_command(
         full_text=f"/{command_id} {args_text}".strip(),
         channel_id=channel_id,
         message_id="0",
-        thread_id=thread_ts if isinstance(thread_ts, str) else None,
+        thread_id=thread_ts,
         reply_ref=None,
         reply_text=None,
         running_tasks=running_tasks,
-        on_thread_known=on_thread_known,
-        default_engine_override=default_engine_override,
-        default_context=default_context,
-        engine_overrides_resolver=engine_overrides_resolver,
+        on_thread_known=command_context.on_thread_known,
+        default_engine_override=command_context.default_engine_override,
+        default_context=command_context.default_context,
+        engine_overrides_resolver=command_context.engine_overrides_resolver,
     )
     if not handled:
         await _respond_ephemeral(
@@ -1068,7 +1120,7 @@ async def _handle_shortcut(
     message = payload.get("message") or {}
     message_text = message.get("text") if isinstance(message, dict) else None
     message_ts = message.get("ts") if isinstance(message, dict) else None
-    thread_ts = message.get("thread_ts") if isinstance(message, dict) else None
+    thread_ts = _parse_thread_ts(message.get("thread_ts") if isinstance(message, dict) else None)
     response_url = payload.get("response_url")
     if not isinstance(message_text, str) or not message_text.strip():
         await _respond_ephemeral(
@@ -1095,44 +1147,14 @@ async def _handle_shortcut(
             text="running...",
         )
 
-    thread_store = cfg.thread_store
-    if thread_store is None:
+    thread_id = _session_thread_id(channel_id, thread_ts)
+    command_context = await _resolve_command_context(
+        cfg,
+        channel_id=channel_id,
+        thread_id=thread_id,
+    )
+    if command_context is None:
         return
-    thread_id = _session_thread_id(channel_id, thread_ts if isinstance(thread_ts, str) else None)
-
-    default_context = await thread_store.get_context(
-        channel_id=channel_id,
-        thread_id=thread_id,
-    )
-    default_engine_override = await thread_store.get_default_engine(
-        channel_id=channel_id,
-        thread_id=thread_id,
-    )
-
-    async def engine_overrides_resolver(
-        engine_id: str,
-    ) -> EngineRunOptions | None:
-        model = await thread_store.get_model_override(
-            channel_id=channel_id,
-            thread_id=thread_id,
-            engine=engine_id,
-        )
-        reasoning = await thread_store.get_reasoning_override(
-            channel_id=channel_id,
-            thread_id=thread_id,
-            engine=engine_id,
-        )
-        if model or reasoning:
-            return EngineRunOptions(model=model, reasoning=reasoning)
-        return None
-
-    async def _note_resume(token, done: anyio.Event) -> None:
-        _ = done
-        await thread_store.set_resume(
-            channel_id=channel_id,
-            thread_id=thread_id,
-            token=token,
-        )
 
     reply_ref = None
     reply_text = None
@@ -1140,7 +1162,7 @@ async def _handle_shortcut(
         reply_ref = MessageRef(
             channel_id=channel_id,
             message_id=message_ts,
-            thread_id=thread_ts if isinstance(thread_ts, str) else None,
+            thread_id=thread_ts,
         )
         reply_text = message_text
 
@@ -1151,14 +1173,14 @@ async def _handle_shortcut(
         full_text=f"/{command_id} {args_text}".strip(),
         channel_id=channel_id,
         message_id=message_ts if isinstance(message_ts, str) else "0",
-        thread_id=thread_ts if isinstance(thread_ts, str) else None,
+        thread_id=thread_ts,
         reply_ref=reply_ref,
         reply_text=reply_text,
         running_tasks=running_tasks,
-        on_thread_known=_note_resume,
-        default_engine_override=default_engine_override,
-        default_context=default_context,
-        engine_overrides_resolver=engine_overrides_resolver,
+        on_thread_known=command_context.on_thread_known,
+        default_engine_override=command_context.default_engine_override,
+        default_context=command_context.default_context,
+        engine_overrides_resolver=command_context.engine_overrides_resolver,
     )
     if not handled:
         await _respond_ephemeral(
@@ -1230,6 +1252,7 @@ def _format_status(state: dict[str, object] | None) -> str:
     if not lines:
         return "thread state is empty."
     return "\n".join(lines)
+
 
 async def _run_socket_loop(
     cfg: SlackBridgeConfig,
@@ -1332,9 +1355,9 @@ async def _run_socket_loop(
                         tg.start_soon(
                             _safe_handle_slack_message,
                             cfg,
-                            msg,
-                            cleaned,
-                            running_tasks,
+                            message=msg,
+                            text=cleaned,
+                            running_tasks=running_tasks,
                         )
             except WebSocketException as exc:
                 logger.warning("slack.socket_failed", error=str(exc))
