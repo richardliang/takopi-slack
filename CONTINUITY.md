@@ -11,8 +11,9 @@ Key decisions:
 - Rename Python package to `takopi_slack_plugin` to align with the new distribution name.
 
 State:
-- Docs and DRY refactor complete; ready to commit/publish.
+- Docs and DRY refactor committed; release tag pushed.
 
+Done:
 - Located Slack transport source and packaging in `../takopi/packages/takopi-transport-slack`.
 - Copied Slack transport package files into this workspace.
 - Updated README with install/config/start instructions.
@@ -71,12 +72,13 @@ State:
 - Bumped version to `0.0.13`, committed, pushed to `main`, and tagged `v0.0.13`.
 - Refactored Slack bridge to reuse helper functions for thread context/overrides and align keyword-only handler signatures.
 - Rewrote README to match takopi main style and added license section (MIT already present).
+- Bumped version to `0.0.14`, committed docs/refactor changes, pushed to `main`, and tagged `v0.0.14`.
 
 Now:
-- Commit changes, bump version if needed, push to main, and publish.
+- Wait for publish workflow to complete.
 
 Next:
-- Confirm publish workflow ran successfully.
+- Verify PyPI/GitHub Actions publish success and share install instructions if needed.
 
 Open questions (UNCONFIRMED if needed):
 - None.
