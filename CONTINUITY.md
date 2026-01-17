@@ -11,7 +11,7 @@ Key decisions:
 - Rename Python package to `takopi_slack_plugin` to align with the new distribution name.
 
 State:
-- In progress; Socket Mode changes pushed to main; publish requires tag.
+- In progress; tag `v0.0.2` pushed to trigger publish.
 
 Done:
 - Located Slack transport source and packaging in `../takopi/packages/takopi-transport-slack`.
@@ -28,12 +28,13 @@ Done:
 - Updated README/config for Socket Mode and added `websockets` dependency.
 - Rebuilt package with `UV_CACHE_DIR=/tmp/uv-cache` after cache permission error.
 - Bumped version to `0.0.2`, committed, and pushed Socket Mode changes to `main`.
+- Created and pushed tag `v0.0.2`.
 
 Now:
-- Clarify that publish is tag-based and provide install/config commands.
+- Confirm publish workflow run on `v0.0.2`.
 
 Next:
-- Tag `v0.0.2` to trigger publish if desired; verify Socket Mode behavior.
+- Verify PyPI release and Socket Mode behavior.
 
 Open questions (UNCONFIRMED if needed):
 - Do they want Socket Mode (xapp token) or Events API, and can provide app token (UNCONFIRMED)?
