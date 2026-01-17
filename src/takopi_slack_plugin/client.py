@@ -102,6 +102,7 @@ class SlackClient:
         *,
         channel_id: str,
         text: str,
+        blocks: list[dict[str, Any]] | None = None,
         thread_ts: str | None = None,
         reply_broadcast: bool | None = None,
     ) -> SlackMessage:
@@ -110,6 +111,8 @@ class SlackClient:
             "text": text,
             "mrkdwn": True,
         }
+        if blocks is not None:
+            data["blocks"] = blocks
         if thread_ts is not None:
             data["thread_ts"] = thread_ts
         if reply_broadcast is not None:
@@ -126,6 +129,7 @@ class SlackClient:
         channel_id: str,
         ts: str,
         text: str,
+        blocks: list[dict[str, Any]] | None = None,
     ) -> SlackMessage:
         data: dict[str, Any] = {
             "channel": channel_id,
@@ -133,6 +137,8 @@ class SlackClient:
             "text": text,
             "mrkdwn": True,
         }
+        if blocks is not None:
+            data["blocks"] = blocks
         payload = await self._request("POST", "/chat.update", json=data)
         message = payload.get("message")
         if not isinstance(message, dict):
@@ -143,6 +149,36 @@ class SlackClient:
         data = {"channel": channel_id, "ts": ts}
         await self._request("POST", "/chat.delete", json=data)
         return True
+
+    async def post_response(
+        self,
+        *,
+        response_url: str,
+        text: str,
+        response_type: str = "ephemeral",
+        replace_original: bool | None = None,
+        delete_original: bool | None = None,
+    ) -> None:
+        payload: dict[str, Any] = {
+            "text": text,
+            "response_type": response_type,
+        }
+        if replace_original is not None:
+            payload["replace_original"] = replace_original
+        if delete_original is not None:
+            payload["delete_original"] = delete_original
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            try:
+                response = await client.post(response_url, json=payload)
+            except httpx.HTTPError as exc:
+                logger.warning("slack.response_failed", error=str(exc))
+                return
+        if response.status_code >= 400:
+            logger.warning(
+                "slack.response_failed",
+                status_code=response.status_code,
+                body=response.text,
+            )
 
 async def _request_with_client(
     client: httpx.AsyncClient,

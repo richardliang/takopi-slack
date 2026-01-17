@@ -12,7 +12,7 @@ class SlackTransportSettings:
     bot_token: str
     channel_id: str
     app_token: str
-    message_overflow: Literal["trim", "split"] = "trim"
+    message_overflow: Literal["trim", "split"] = "split"
 
     @classmethod
     def from_config(
@@ -29,7 +29,7 @@ class SlackTransportSettings:
         channel_id = _require_str(config, "channel_id", config_path=config_path)
         app_token = _require_str(config, "app_token", config_path=config_path)
 
-        message_overflow = config.get("message_overflow", "trim")
+        message_overflow = config.get("message_overflow", "split")
         if not isinstance(message_overflow, str):
             raise ConfigError(
                 f"Invalid `transports.slack.message_overflow` in {config_path}; "
@@ -58,4 +58,3 @@ def _require_str(config: dict[str, Any], key: str, *, config_path: Path) -> str:
             "expected a non-empty string."
         )
     return value.strip()
-

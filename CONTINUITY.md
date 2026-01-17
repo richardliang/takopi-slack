@@ -1,5 +1,5 @@
 Goal (incl. success criteria):
-- Apply refactors (socket naming, single-pass directive parsing, JsonStateStore, hard-coded behaviors), update README, and publish.
+- Implement Slack plugin features inspired by Discord: plugin command routing, per-thread state/overrides, and outbox/cancel/splitting, then publish a new release.
 
 Constraints/Assumptions:
 - Follow workspace instructions in `AGENTS.md`, including Continuity Ledger updates each turn.
@@ -11,7 +11,7 @@ Key decisions:
 - Rename Python package to `takopi_slack_plugin` to align with the new distribution name.
 
 State:
-- In progress; `v0.0.11` tagged and pushed.
+- In progress; `v0.0.11` tagged and pushed; new feature work starting.
 
 Done:
 - Located Slack transport source and packaging in `../takopi/packages/takopi-transport-slack`.
@@ -60,12 +60,19 @@ Done:
 - Enforced directives using single parse and updated socket naming/docs.
 - Bumped version to `0.0.11`, committed, and pushed to `main`.
 - Created and pushed tag `v0.0.11`.
+- Cloned `takopi-discord` to `/tmp/takopi-discord` and reviewed `README.md`, `pyproject.toml`, and `src/takopi_discord/state.py`.
+- Reviewed Discord transport core files for features and patterns (`loop.py`, `handlers.py`, `bridge.py`, `commands/registration.py`, `overrides.py`, `outbox.py`, `file_transfer.py`).
+- Added Slack thread state storage (context, resume tokens, model/reasoning overrides, default engine) and helpers.
+- Added shared engine runner helper and Slack outbox for rate-limited send/edit/delete.
+- Added Slack slash command/shortcut routing for plugin commands plus built-in override controls.
+- Added cancel button blocks + interactive handler and enabled message splitting by default.
+- Updated README for slash command usage, shortcuts, cancel button, and message_overflow.
 
 Now:
-- Share updated config/behavior changes and confirm publish status.
+- Bump version, commit, push, and tag to publish.
 
 Next:
-- Publish release and confirm any follow-up UX changes.
+- Validate publish workflow and share install/config commands if needed.
 
 Open questions (UNCONFIRMED if needed):
 - None.
@@ -80,3 +87,4 @@ Working set (files/ids/commands):
 - src/takopi_slack_plugin/bridge.py
 - src/takopi_slack_plugin/client.py
 - src/takopi_slack_plugin/config.py
+- /tmp/takopi-discord

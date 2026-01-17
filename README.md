@@ -7,7 +7,9 @@ responds in a single channel or DM.
 
 - Python 3.14+
 - takopi >=0.20.0
-- Slack bot token with `chat:write`
+- Slack bot token with `chat:write`, `commands`, `app_mentions:read`, and
+  the matching history scopes for your channel type (`channels:history`,
+  `groups:history`, `im:history`, `mpim:history`)
 - Slack app token (`xapp-`) with `connections:write`
 
 ## Install
@@ -37,7 +39,11 @@ transport = "slack"
 bot_token = "xoxb-..."
 app_token = "xapp-..."
 channel_id = "C12345678"
+message_overflow = "split"
 ```
+
+Set `message_overflow = "trim"` if you prefer truncation instead of followup
+messages.
 
 ### Required Directives
 
@@ -49,6 +55,35 @@ Example:
 ```
 @takopi /zkp2p-clients @feat/web/monad-usdt0 add a retry to the API call
 ```
+
+### Slash Command + Shortcuts
+
+Configure a single slash command (for example `/takopi`) and optionally a
+message shortcut.
+
+Enable Slack "Slash Commands" and "Interactivity & Shortcuts" for the app so
+Socket Mode can deliver command payloads and button/shortcut actions.
+
+Slash command usage:
+
+```
+/takopi <plugin_id> [args...]
+/takopi status
+/takopi engine <engine|clear>
+/takopi model <engine> <model|clear>
+/takopi reasoning <engine> <level|clear>
+/takopi session clear
+```
+
+Message shortcut:
+
+- Create a message shortcut and set its Callback ID to `takopi:<plugin_id>`.
+- The selected message text is passed as the command arguments.
+
+### Cancel Button
+
+Progress messages include a cancel button. Enable Slack "Interactivity &
+Shortcuts" so button clicks are delivered in Socket Mode.
 
 ### Socket Connections (required)
 
@@ -69,6 +104,9 @@ Enable Slack events for `message.channels`, `message.groups`, `message.im`,
 
 Takopi always replies in threads and stores resume tokens per thread at
 `~/.takopi/slack_thread_sessions_state.json`.
+
+Thread state also stores per-thread overrides for default engine/model/
+reasoning. Use the `/takopi` slash command to manage them.
 
 If you use a plugin allowlist, enable this distribution:
 
