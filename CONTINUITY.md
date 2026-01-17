@@ -11,7 +11,7 @@ Key decisions:
 - Rename Python package to `takopi_slack_plugin` to align with the new distribution name.
 
 State:
-- In progress; local refactor changes underway per request; no push yet.
+- In progress; refactor commit ready locally; no push yet.
 
 Done:
 - Located Slack transport source and packaging in `../takopi/packages/takopi-transport-slack`.
@@ -55,9 +55,13 @@ Done:
 - Bumped version to `0.0.10`, committed, and pushed to `main`.
 - Created and pushed tag `v0.0.10`.
 - Removed leftover legacy Slack config reads (poll_interval/socket_mode).
+- Refactored Slack thread sessions to use JsonStateStore and store resume tokens only.
+- Hardcoded thread replies and removed mention/session config flags.
+- Enforced directives using single parse and updated socket naming/docs.
+- Bumped version to `0.0.11` locally.
 
 Now:
-- Finish refactors and update README/version before pushing.
+- Push `0.0.11` changes, tag release, and publish.
 
 Next:
 - Publish release and confirm any follow-up UX changes.
