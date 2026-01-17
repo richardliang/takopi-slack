@@ -11,7 +11,7 @@ Key decisions:
 - Rename Python package to `takopi_slack_plugin` to align with the new distribution name.
 
 State:
-- Docs and DRY refactor committed; release tag pushed.
+- Bugfix needed: anyio TaskGroup.start_soon called with kwargs in Slack socket loop.
 
 Done:
 - Located Slack transport source and packaging in `../takopi/packages/takopi-transport-slack`.
@@ -75,10 +75,10 @@ Done:
 - Bumped version to `0.0.14`, committed docs/refactor changes, pushed to `main`, and tagged `v0.0.14`.
 
 Now:
-- Wait for publish workflow to complete.
+- Fix start_soon keyword-arg crash, bump version, push/tag, publish.
 
 Next:
-- Verify PyPI/GitHub Actions publish success and share install instructions if needed.
+- Verify publish success and confirm takopi uses updated plugin.
 
 Open questions (UNCONFIRMED if needed):
 - None.

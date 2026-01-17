@@ -545,7 +545,6 @@ async def _send_startup(cfg: SlackBridgeConfig) -> None:
 
 async def _handle_slack_message(
     cfg: SlackBridgeConfig,
-    *,
     message: SlackMessage,
     text: str,
     running_tasks: RunningTasks,
@@ -656,18 +655,12 @@ async def _handle_slack_message(
 
 async def _safe_handle_slack_message(
     cfg: SlackBridgeConfig,
-    *,
     message: SlackMessage,
     text: str,
     running_tasks: RunningTasks,
 ) -> None:
     try:
-        await _handle_slack_message(
-            cfg,
-            message=message,
-            text=text,
-            running_tasks=running_tasks,
-        )
+        await _handle_slack_message(cfg, message, text, running_tasks)
     except Exception as exc:
         logger.exception(
             "slack.message_failed",
@@ -1355,9 +1348,9 @@ async def _run_socket_loop(
                         tg.start_soon(
                             _safe_handle_slack_message,
                             cfg,
-                            message=msg,
-                            text=cleaned,
-                            running_tasks=running_tasks,
+                            msg,
+                            cleaned,
+                            running_tasks,
                         )
             except WebSocketException as exc:
                 logger.warning("slack.socket_failed", error=str(exc))
