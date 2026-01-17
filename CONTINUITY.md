@@ -7,11 +7,11 @@ Constraints/Assumptions:
 - `../takopi` is expected to contain the current Slack plugin logic (UNCONFIRMED).
 
 Key decisions:
-- Use package name `takopi-slack-plugin` and project URL `zkp2p.xyz`; bump to `0.0.5` for Slack context directives.
+- Use package name `takopi-slack-plugin` and project URL `zkp2p.xyz`; bump to `0.0.4` for Socket Mode bugfix release.
 - Rename Python package to `takopi_slack_plugin` to align with the new distribution name.
 
 State:
-- In progress; user requested rollback of Slack context shortcuts and wants a friendlier Slack UI.
+- In progress; reverting Slack context shortcut changes; tag `v0.0.5` exists on remote.
 
 Done:
 - Located Slack transport source and packaging in `../takopi/packages/takopi-transport-slack`.
@@ -34,12 +34,12 @@ Done:
 - Created and pushed tag `v0.0.3`.
 - Fixed Socket Mode handler signature; bumped to `0.0.4`, committed, and pushed to `main`.
 - Created and pushed tag `v0.0.4`.
-- Added Slack context store and directive-only context setting; updated README.
+- Added Slack context store and directive-only context setting; updated README (reverting).
 - Bumped version to `0.0.5`, committed, and pushed to `main`.
 - Created and pushed tag `v0.0.5`.
 
 Now:
-- Review Slack context shortcut changes, revert them, and propose a better Slack UI approach.
+- Complete revert of Slack context shortcut changes and push to `main`.
 
 Next:
 - Align on the desired Slack UI (slash command, modal, app home) before implementing.
