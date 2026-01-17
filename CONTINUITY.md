@@ -11,7 +11,7 @@ Key decisions:
 - Rename Python package to `takopi_slack_plugin` to align with the new distribution name.
 
 State:
-- In progress; Slack context shortcut changes reverted on `main`; tag `v0.0.5` still exists on remote; `v0.0.6` tagged and pushed; thread session changes staged locally.
+- In progress; Slack context shortcut changes reverted on `main`; tag `v0.0.5` still exists on remote; `v0.0.6` and `v0.0.7` tagged and pushed.
 
 Done:
 - Located Slack transport source and packaging in `../takopi/packages/takopi-transport-slack`.
@@ -40,10 +40,13 @@ Done:
 - Reverted Slack context shortcut changes; `main` version back to `0.0.4`.
 - Bumped version to `0.0.6`, committed, and pushed to `main`.
 - Created and pushed tag `v0.0.6`.
-- Added Slack thread session store (resume + context) and wired config/bridge/back-end (pending commit).
+- Added Slack thread session store (resume + context) and wired config/bridge/back-end.
+- Updated Slack onboarding/README for thread sessions.
+- Bumped version to `0.0.7`, committed, and pushed to `main`.
+- Created and pushed tag `v0.0.7`.
 
 Now:
-- Commit per-thread session changes, update README, and cut `v0.0.7` tag.
+- Tell user how to enable per-thread sessions in Slack config and any caveats.
 
 Next:
 - Confirm desired Slack UX beyond per-thread sessions (slash commands/app home) if needed.
