@@ -11,6 +11,8 @@ from takopi.api import ConfigError
 class SlackTransportSettings:
     bot_token: str
     channel_id: str
+    app_token: str | None = None
+    socket_mode: bool = False
     message_overflow: Literal["trim", "split"] = "trim"
     reply_in_thread: bool = False
     require_mention: bool = False
@@ -29,6 +31,18 @@ class SlackTransportSettings:
 
         bot_token = _require_str(config, "bot_token", config_path=config_path)
         channel_id = _require_str(config, "channel_id", config_path=config_path)
+        app_token = _optional_str(config, "app_token", config_path=config_path)
+        socket_mode = _optional_bool(
+            config,
+            "socket_mode",
+            config_path=config_path,
+            default=app_token is not None,
+        )
+        if socket_mode and app_token is None:
+            raise ConfigError(
+                f"Invalid `transports.slack.app_token` in {config_path}; "
+                "required when socket_mode = true."
+            )
 
         message_overflow = config.get("message_overflow", "trim")
         if not isinstance(message_overflow, str):
@@ -56,6 +70,8 @@ class SlackTransportSettings:
         return cls(
             bot_token=bot_token,
             channel_id=channel_id,
+            app_token=app_token,
+            socket_mode=socket_mode,
             message_overflow=message_overflow,
             reply_in_thread=reply_in_thread,
             require_mention=require_mention,
@@ -87,6 +103,24 @@ def _optional_bool(
         return value
     raise ConfigError(
         f"Invalid `transports.slack.{key}` in {config_path}; expected a boolean."
+    )
+
+
+def _optional_str(
+    config: dict[str, Any],
+    key: str,
+    *,
+    config_path: Path,
+) -> str | None:
+    if key not in config:
+        return None
+    value = config.get(key)
+    if value is None:
+        return None
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    raise ConfigError(
+        f"Invalid `transports.slack.{key}` in {config_path}; expected a string."
     )
 
 

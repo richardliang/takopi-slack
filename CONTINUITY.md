@@ -7,11 +7,11 @@ Constraints/Assumptions:
 - `../takopi` is expected to contain the current Slack plugin logic (UNCONFIRMED).
 
 Key decisions:
-- Use package name `takopi-slack-plugin` with version `0.0.1` and project URL `zkp2p.xyz`.
+- Use package name `takopi-slack-plugin` and project URL `zkp2p.xyz`; bump to `0.0.2` for Socket Mode release.
 - Rename Python package to `takopi_slack_plugin` to align with the new distribution name.
 
 State:
-- In progress; changes pushed to main; repo remote indicates move.
+- In progress; Socket Mode implemented locally and needs commit/push.
 
 Done:
 - Located Slack transport source and packaging in `../takopi/packages/takopi-transport-slack`.
@@ -23,15 +23,19 @@ Done:
 - Attempted `uv publish`; failed due to missing PyPI credentials/trusted publishing token.
 - Added GitHub Actions trusted publishing workflow at `.github/workflows/workflow.yml`.
 - Committed changes and pushed to `main` (remote reports repository moved to `github.com:richardliang/takopi-slack-plugin.git`).
+- Created and pushed tag `v0.0.1` to trigger publish workflow.
+- Added Socket Mode support (app token + WebSocket) and kept polling as fallback.
+- Updated README/config for Socket Mode and added `websockets` dependency.
+- Rebuilt package with `UV_CACHE_DIR=/tmp/uv-cache` after cache permission error.
 
 Now:
-- Confirm remote URL update if needed; then trigger release/tag.
+- Commit and push Socket Mode changes; clarify publish trigger and installation steps.
 
 Next:
-- Trigger release (tag or workflow dispatch) after PyPI trusted publishing is configured.
+- Tag a new release for publish if desired; verify Socket Mode behavior.
 
 Open questions (UNCONFIRMED if needed):
-- Confirm repo/owner/workflow path for trusted publishing and optional environment name (UNCONFIRMED).
+- Do they want Socket Mode (xapp token) or Events API, and can provide app token (UNCONFIRMED)?
 
 Working set (files/ids/commands):
 - CONTINUITY.md
@@ -40,3 +44,6 @@ Working set (files/ids/commands):
 - README.md
 - src/takopi_slack_plugin
 - .github/workflows/workflow.yml
+- src/takopi_slack_plugin/bridge.py
+- src/takopi_slack_plugin/client.py
+- src/takopi_slack_plugin/config.py

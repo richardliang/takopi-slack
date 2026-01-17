@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass
 from typing import Any
 
 import anyio
+import websockets
+from websockets.exceptions import WebSocketException
 
 from takopi.api import (
     ConfigError,
@@ -26,7 +29,7 @@ from takopi.api import (
     set_run_base_dir,
 )
 
-from .client import SlackApiError, SlackClient, SlackMessage
+from .client import SlackApiError, SlackClient, SlackMessage, open_socket_url
 
 logger = get_logger(__name__)
 
@@ -95,6 +98,8 @@ class SlackBridgeConfig:
     poll_interval_s: float = 1.0
     reply_in_thread: bool = False
     require_mention: bool = False
+    socket_mode: bool = False
+    app_token: str | None = None
 
 
 class SlackTransport:
@@ -556,23 +561,21 @@ async def _safe_handle_slack_message(
         )
 
 
-async def run_main_loop(
+def _resolve_mention_requirement(
+    cfg: SlackBridgeConfig, bot_user_id: str | None
+) -> bool:
+    mention_required = cfg.require_mention
+    if mention_required and bot_user_id is None:
+        logger.warning("slack.mention_disabled", reason="bot_user_id missing")
+        mention_required = False
+    return mention_required
+
+
+async def _run_polling_loop(
     cfg: SlackBridgeConfig,
     *,
-    watch_config: bool | None = None,
-    default_engine_override: str | None = None,
-    transport_id: str | None = None,
-    transport_config: object | None = None,
+    bot_user_id: str | None,
 ) -> None:
-    _ = watch_config, default_engine_override, transport_id, transport_config
-    await _send_startup(cfg)
-    bot_user_id: str | None = None
-    try:
-        auth = await cfg.client.auth_test()
-        bot_user_id = auth.user_id
-    except SlackApiError as exc:
-        logger.warning("slack.auth_test_failed", error=str(exc))
-
     last_seen_value = 0.0
     last_seen_raw: str | None = None
     try:
@@ -586,13 +589,9 @@ async def run_main_loop(
         logger.warning("slack.seed_failed", error=str(exc))
 
     running_tasks: RunningTasks = {}
+    mention_required = _resolve_mention_requirement(cfg, bot_user_id)
 
     async with anyio.create_task_group() as tg:
-        mention_required = cfg.require_mention
-        if mention_required and bot_user_id is None:
-            logger.warning("slack.mention_disabled", reason="bot_user_id missing")
-            mention_required = False
-
         while True:
             try:
                 messages = await cfg.client.conversations_history(
@@ -629,3 +628,119 @@ async def run_main_loop(
                     running_tasks=running_tasks,
                 )
             await anyio.sleep(cfg.poll_interval_s)
+
+
+async def _run_socket_mode_loop(
+    cfg: SlackBridgeConfig,
+    *,
+    bot_user_id: str | None,
+) -> None:
+    if not cfg.app_token:
+        raise ConfigError(
+            "Missing transports.slack.app_token for socket_mode."
+        )
+
+    running_tasks: RunningTasks = {}
+    mention_required = _resolve_mention_requirement(cfg, bot_user_id)
+    backoff_s = max(1.0, float(cfg.poll_interval_s))
+
+    async with anyio.create_task_group() as tg:
+        while True:
+            try:
+                socket_url = await open_socket_url(cfg.app_token)
+            except SlackApiError as exc:
+                logger.warning("slack.socket.open_failed", error=str(exc))
+                await anyio.sleep(backoff_s)
+                continue
+
+            try:
+                async with websockets.connect(
+                    socket_url,
+                    ping_interval=10,
+                    ping_timeout=10,
+                ) as ws:
+                    while True:
+                        raw = await ws.recv()
+                        if isinstance(raw, bytes):
+                            raw = raw.decode("utf-8", "ignore")
+                        try:
+                            envelope = json.loads(raw)
+                        except json.JSONDecodeError:
+                            logger.warning("slack.socket.bad_payload")
+                            continue
+
+                        envelope_id = envelope.get("envelope_id")
+                        if isinstance(envelope_id, str) and envelope_id:
+                            await ws.send(
+                                json.dumps({"envelope_id": envelope_id})
+                            )
+
+                        msg_type = envelope.get("type")
+                        if msg_type == "disconnect":
+                            logger.info("slack.socket.disconnect")
+                            break
+                        if msg_type != "events_api":
+                            continue
+
+                        payload = envelope.get("payload")
+                        if not isinstance(payload, dict):
+                            continue
+                        event = payload.get("event")
+                        if not isinstance(event, dict):
+                            continue
+
+                        event_type = event.get("type")
+                        if event_type not in {"message", "app_mention"}:
+                            continue
+                        channel = event.get("channel")
+                        if channel != cfg.channel_id:
+                            continue
+
+                        msg = SlackMessage.from_api(event)
+                        if _should_skip_message(msg, bot_user_id):
+                            continue
+                        cleaned, allowed = _strip_bot_mention(
+                            msg.text or "",
+                            bot_user_id=bot_user_id,
+                            require_mention=mention_required,
+                        )
+                        if not allowed:
+                            continue
+                        if not cleaned.strip():
+                            continue
+                        tg.start_soon(
+                            _safe_handle_slack_message,
+                            cfg,
+                            message=msg,
+                            text=cleaned,
+                            running_tasks=running_tasks,
+                        )
+            except WebSocketException as exc:
+                logger.warning("slack.socket_failed", error=str(exc))
+            except OSError as exc:
+                logger.warning("slack.socket_failed", error=str(exc))
+
+            await anyio.sleep(backoff_s)
+
+
+async def run_main_loop(
+    cfg: SlackBridgeConfig,
+    *,
+    watch_config: bool | None = None,
+    default_engine_override: str | None = None,
+    transport_id: str | None = None,
+    transport_config: object | None = None,
+) -> None:
+    _ = watch_config, default_engine_override, transport_id, transport_config
+    await _send_startup(cfg)
+    bot_user_id: str | None = None
+    try:
+        auth = await cfg.client.auth_test()
+        bot_user_id = auth.user_id
+    except SlackApiError as exc:
+        logger.warning("slack.auth_test_failed", error=str(exc))
+
+    if cfg.socket_mode:
+        await _run_socket_mode_loop(cfg, bot_user_id=bot_user_id)
+    else:
+        await _run_polling_loop(cfg, bot_user_id=bot_user_id)

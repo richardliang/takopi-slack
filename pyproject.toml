@@ -1,6 +1,6 @@
 [project]
 name = "takopi-slack-plugin"
-version = "0.0.1"
+version = "0.0.2"
 description = "Slack transport plugin for Takopi."
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -11,6 +11,7 @@ dependencies = [
   "httpx>=0.28.1",
   "questionary>=2.1.1",
   "takopi>=0.20.0",
+  "websockets>=12.0",
 ]
 keywords = ["takopi", "slack", "transport", "plugin"]
 classifiers = [

@@ -78,45 +78,13 @@ class SlackClient:
         params: dict[str, Any] | None = None,
         json: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        while True:
-            try:
-                response = await self._client.request(
-                    method, endpoint, params=params, json=json
-                )
-            except httpx.HTTPError as exc:
-                logger.warning("slack.network_error", error=str(exc))
-                raise SlackApiError("Slack request failed") from exc
-
-            if response.status_code == 429:
-                retry_after = response.headers.get("Retry-After")
-                try:
-                    delay = int(retry_after) if retry_after is not None else 1
-                except ValueError:
-                    delay = 1
-                logger.info("slack.rate_limited", retry_after=delay)
-                await anyio.sleep(delay)
-                continue
-
-            if response.status_code >= 400:
-                raise SlackApiError(
-                    f"Slack HTTP {response.status_code}",
-                    status_code=response.status_code,
-                )
-
-            try:
-                payload = response.json()
-            except ValueError as exc:
-                raise SlackApiError("Slack response was not JSON") from exc
-
-            if payload.get("ok") is not True:
-                error = payload.get("error")
-                raise SlackApiError(
-                    f"Slack API error: {error}",
-                    error=error,
-                    status_code=response.status_code,
-                )
-
-            return payload
+        return await _request_with_client(
+            self._client,
+            method,
+            endpoint,
+            params=params,
+            json=json,
+        )
 
     async def auth_test(self) -> SlackAuth:
         payload = await self._request("POST", "/auth.test")
@@ -210,3 +178,77 @@ class SlackClient:
                 break
             cursor = next_cursor
         return messages
+
+
+async def _request_with_client(
+    client: httpx.AsyncClient,
+    method: str,
+    endpoint: str,
+    *,
+    params: dict[str, Any] | None = None,
+    json: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    while True:
+        try:
+            response = await client.request(
+                method, endpoint, params=params, json=json
+            )
+        except httpx.HTTPError as exc:
+            logger.warning("slack.network_error", error=str(exc))
+            raise SlackApiError("Slack request failed") from exc
+
+        if response.status_code == 429:
+            retry_after = response.headers.get("Retry-After")
+            try:
+                delay = int(retry_after) if retry_after is not None else 1
+            except ValueError:
+                delay = 1
+            logger.info("slack.rate_limited", retry_after=delay)
+            await anyio.sleep(delay)
+            continue
+
+        if response.status_code >= 400:
+            raise SlackApiError(
+                f"Slack HTTP {response.status_code}",
+                status_code=response.status_code,
+            )
+
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            raise SlackApiError("Slack response was not JSON") from exc
+
+        if payload.get("ok") is not True:
+            error = payload.get("error")
+            raise SlackApiError(
+                f"Slack API error: {error}",
+                error=error,
+                status_code=response.status_code,
+            )
+
+        return payload
+
+
+async def open_socket_url(
+    app_token: str,
+    *,
+    base_url: str = "https://slack.com/api",
+    timeout_s: float = 30.0,
+) -> str:
+    token = app_token.strip()
+    if not token:
+        raise SlackApiError("Missing Slack app token")
+    async with httpx.AsyncClient(
+        base_url=base_url,
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=timeout_s,
+    ) as client:
+        payload = await _request_with_client(
+            client,
+            "POST",
+            "/apps.connections.open",
+        )
+    url = payload.get("url")
+    if not isinstance(url, str) or not url.strip():
+        raise SlackApiError("Slack socket mode missing url")
+    return url.strip()
