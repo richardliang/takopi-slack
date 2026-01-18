@@ -12,7 +12,7 @@ Key decisions:
 - Rename Python package to `takopi_slack_plugin` to align with the new distribution name.
 
 State:
-- PR already merged; local main updated. Need to bump to `0.1.1`, tag, and publish.
+- Version `0.1.1` committed and tag `v0.1.1` pushed to trigger publish.
 
 Done:
 - Located Slack transport source and packaging in `../takopi/packages/takopi-transport-slack`.
@@ -88,12 +88,14 @@ Done:
 - Moved gating docs into `docs/` and updated README/doc links.
 - Added ignore-worktrees instruction to global AGENTS and example.
 - Pushed commit updating `docs/AGENTS.example.md` to PR branch.
+- Merged PR #1 via main fast-forward update.
+- Bumped version to `0.1.1`, committed, and pushed tag `v0.1.1`.
 
 Now:
-- Bump `pyproject.toml` version to `0.1.1`, commit, tag `v0.1.1`, push.
+- Wait for publish workflow to complete.
 
 Next:
-- Verify publish workflow.
+- Confirm release is live.
 
 Open questions (UNCONFIRMED if needed):
 - None.
@@ -111,3 +113,4 @@ Working set (files/ids/commands):
 - /home/ubuntu/.codex/AGENTS.md
 - docs/AGENTS.example.md
 - docs/GATING_README.md
+- pyproject.toml
