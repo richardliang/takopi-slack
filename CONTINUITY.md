@@ -1,5 +1,5 @@
 Goal (incl. success criteria):
-- Merge opinionated gating into global `~/.codex/AGENTS.md`, move gating docs to `docs/`, update README, and push a PR.
+- Add instruction to ignore worktree directories when committing/pushing in global AGENTS and example.
 
 Constraints/Assumptions:
 - Follow workspace instructions in `AGENTS.md`, including Continuity Ledger updates each turn.
@@ -12,7 +12,7 @@ Key decisions:
 - Rename Python package to `takopi_slack_plugin` to align with the new distribution name.
 
 State:
-- PR opened for gating docs updates; global AGENTS merged with opinionated policy.
+- Global AGENTS and example updated with worktree ignore guidance.
 
 Done:
 - Located Slack transport source and packaging in `../takopi/packages/takopi-transport-slack`.
@@ -86,9 +86,10 @@ Done:
 - Removed gating policy from `/home/ubuntu/.codex/AGENTS.md`.
 - Merged opinionated gating into `/home/ubuntu/.codex/AGENTS.md`.
 - Moved gating docs into `docs/` and updated README/doc links.
+- Added ignore-worktrees instruction to global AGENTS and example.
 
 Now:
-- Await user feedback on PR.
+- Reply with update confirmation.
 
 Next:
 - None.
