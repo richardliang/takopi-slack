@@ -81,8 +81,9 @@ if you already set `transport = "slack"`, `takopi` is enough.
 directives are optional. use `/project` and `@branch` in the first line to
 target a project or worktree; otherwise the run uses the default takopi context.
 
-inline command mode: if the remaining prompt includes a `/command`, the slack
-bridge dispatches it as a command instead of running the engine.
+inline command mode: if the remaining prompt includes a `/command` that matches
+a registered command plugin, the slack bridge dispatches it instead of running
+the engine.
 
 example (inline command):
 

@@ -631,8 +631,7 @@ async def _handle_slack_message(
             prompt, allowed_commands=allowed_commands
         )
     if inline_command:
-        command_id, args_text = inline_command
-        thread_id = _session_thread_id(channel_id, message.thread_ts or message.ts)
+        command_id, args_text, command_text = inline_command
         command_context = None
         if thread_store is not None:
             command_context = await _resolve_command_context(
@@ -656,7 +655,7 @@ async def _handle_slack_message(
             cfg,
             command_id=command_id,
             args_text=args_text,
-            full_text=text,
+            full_text=command_text,
             channel_id=channel_id,
             message_id=message.ts,
             thread_id=thread_id,
@@ -768,7 +767,7 @@ def _extract_command_text(tokens: tuple[str, ...], raw_text: str) -> tuple[str, 
 
 def _extract_inline_command(
     prompt: str, *, allowed_commands: set[str]
-) -> tuple[str, str] | None:
+) -> tuple[str, str, str] | None:
     if not prompt.strip() or not allowed_commands or "/" not in prompt:
         return None
     for match in INLINE_COMMAND_RE.finditer(prompt):
@@ -782,7 +781,7 @@ def _extract_inline_command(
         parsed_id, args_text = _extract_command_text(tokens, command_text)
         if parsed_id.lower() != command_id:
             continue
-        return parsed_id, args_text
+        return parsed_id, args_text, command_text
     return None
 
 
