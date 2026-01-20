@@ -684,11 +684,15 @@ async def _handle_slack_message(
             message_id=message.ts,
             thread_id=thread_id,
         )
+        full_text = command_text
+        context_prefix = _format_context_directive(default_context)
+        if context_prefix is not None:
+            full_text = f"{context_prefix} {command_text}"
         handled = await dispatch_command(
             cfg,
             command_id=command_id,
             args_text=args_text,
-            full_text=command_text,
+            full_text=full_text,
             channel_id=channel_id,
             message_id=message.ts,
             thread_id=thread_id,
@@ -796,6 +800,14 @@ def _extract_command_text(tokens: tuple[str, ...], raw_text: str) -> tuple[str, 
     command_id = head.lstrip("/").lower()
     args_text = raw_text[len(head) :].strip()
     return command_id, args_text
+
+
+def _format_context_directive(context: RunContext | None) -> str | None:
+    if context is None or context.project is None:
+        return None
+    if context.branch:
+        return f"/{context.project} @{context.branch}"
+    return f"/{context.project}"
 
 
 def _extract_inline_command(
@@ -1158,11 +1170,15 @@ async def _handle_slash_command(
     if command_context is None:
         return
 
+    full_text = f"/{command_id} {args_text}".strip()
+    context_prefix = _format_context_directive(command_context.default_context)
+    if context_prefix is not None:
+        full_text = f"{context_prefix} {full_text}"
     handled = await dispatch_command(
         cfg,
         command_id=command_id,
         args_text=args_text,
-        full_text=f"/{command_id} {args_text}".strip(),
+        full_text=full_text,
         channel_id=channel_id,
         message_id="0",
         thread_id=thread_ts,
