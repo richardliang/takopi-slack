@@ -908,7 +908,7 @@ async def _handle_slash_command(
     command_id = _extract_slash_payload_command(payload.get("command"))
     if command_id:
         args_text = text.strip()
-        tokens = split_command_args(args_text)
+        tokens = (command_id, *split_command_args(args_text))
     else:
         tokens = split_command_args(text)
         if not tokens:
