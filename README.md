@@ -44,7 +44,8 @@ create a slack app and enable socket mode.
 3. enable events for `app_mention` plus the right `message.*` event for your
    channel type
 4. enable interactivity & shortcuts, create a slash command (for example
-   `/takopi`), and optionally add a message shortcut with callback id
+   `/takopi`), and optionally add dedicated commands like `/takopi-preview`
+   for common plugins plus message shortcuts with callback id
    `takopi:<plugin_id>`
 5. invite the bot to the target channel
 
@@ -89,7 +90,7 @@ example (worktree):
 thread replies reuse stored context, so you can reply without repeating
 directives.
 
-slash command built-ins:
+slash command built-ins (via `/takopi <command>` or `/takopi-<command>`):
 
 ```
 /takopi status

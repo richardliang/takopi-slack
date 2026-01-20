@@ -16,13 +16,13 @@ async def interactive_setup(*, force: bool) -> bool:
     except ConfigError:
         config = {}
 
-    bot_token = questionary.password("Slack bot token").ask()
+    bot_token = await questionary.password("Slack bot token").ask_async()
     if not bot_token:
         return False
-    app_token = questionary.password("Slack app token (xapp-)").ask()
+    app_token = await questionary.password("Slack app token (xapp-)").ask_async()
     if not app_token:
         return False
-    channel_id = questionary.text("Slack channel ID").ask()
+    channel_id = await questionary.text("Slack channel ID").ask_async()
     if not channel_id:
         return False
     transports = _ensure_table(config, "transports", config_path=config_path)

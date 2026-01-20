@@ -703,6 +703,21 @@ def _extract_command_text(tokens: tuple[str, ...], raw_text: str) -> tuple[str, 
     return command_id, args_text
 
 
+def _extract_slash_payload_command(command: object) -> str | None:
+    if not isinstance(command, str):
+        return None
+    value = command.strip()
+    if not value:
+        return None
+    if value.startswith("/"):
+        value = value[1:]
+    lowered = value.lower()
+    for prefix in ("takopi-", "takopi_"):
+        if lowered.startswith(prefix) and len(lowered) > len(prefix):
+            return lowered[len(prefix) :]
+    return None
+
+
 def _parse_thread_ts(value: object) -> str | None:
     if isinstance(value, str) and value.strip():
         return value
@@ -802,21 +817,27 @@ async def _handle_slash_command(
     if not isinstance(channel_id, str) or channel_id != cfg.channel_id:
         return
     text = payload.get("text") or ""
+    if not isinstance(text, str):
+        text = ""
     response_url = payload.get("response_url")
     thread_ts = _parse_thread_ts(payload.get("thread_ts") or payload.get("message_ts"))
     thread_id = _session_thread_id(channel_id, thread_ts)
 
-    tokens = split_command_args(text)
-    if not tokens:
-        await _respond_ephemeral(
-            cfg,
-            response_url=response_url,
-            channel_id=channel_id,
-            text=_slash_usage(),
-        )
-        return
-
-    command_id, args_text = _extract_command_text(tokens, text)
+    command_id = _extract_slash_payload_command(payload.get("command"))
+    if command_id:
+        args_text = text.strip()
+        tokens = split_command_args(args_text)
+    else:
+        tokens = split_command_args(text)
+        if not tokens:
+            await _respond_ephemeral(
+                cfg,
+                response_url=response_url,
+                channel_id=channel_id,
+                text=_slash_usage(),
+            )
+            return
+        command_id, args_text = _extract_command_text(tokens, text)
     if command_id in {"help", "usage"}:
         await _respond_ephemeral(
             cfg,
@@ -1206,6 +1227,8 @@ def _slash_usage() -> str:
     return (
         "usage:\n"
         "/takopi <command> [args]\n\n"
+        "or register a dedicated slash command like /takopi-preview and pass args\n"
+        "as the text after the command.\n\n"
         "built-ins:\n"
         "/takopi status\n"
         "/takopi engine <engine|clear>\n"
