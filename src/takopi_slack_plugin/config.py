@@ -20,7 +20,6 @@ class SlackFilesSettings:
     enabled: bool = False
     auto_put: bool = True
     auto_put_mode: Literal["upload", "prompt"] = "upload"
-    allow_no_context: bool = False
     uploads_dir: str = "incoming"
     allowed_user_ids: list[str] = field(default_factory=list)
     deny_globs: list[str] = field(default_factory=lambda: list(DEFAULT_DENY_GLOBS))
@@ -41,6 +40,22 @@ class SlackFilesSettings:
                 "expected a table."
             )
 
+        allowed_keys = {
+            "enabled",
+            "auto_put",
+            "auto_put_mode",
+            "uploads_dir",
+            "allowed_user_ids",
+            "deny_globs",
+        }
+        unknown_keys = set(config) - allowed_keys
+        if unknown_keys:
+            unknown = ", ".join(sorted(unknown_keys))
+            raise ConfigError(
+                f"Invalid `transports.slack.files` in {config_path}; "
+                f"unknown keys: {unknown}."
+            )
+
         enabled = _optional_bool(config, "enabled", False, config_path)
         auto_put = _optional_bool(config, "auto_put", True, config_path)
         auto_put_mode = config.get("auto_put_mode", "upload")
@@ -56,13 +71,6 @@ class SlackFilesSettings:
                 "expected 'upload' or 'prompt'."
             )
 
-        allow_no_context = _optional_bool(
-            config,
-            "allow_no_context",
-            False,
-            config_path,
-            label="transports.slack.files.allow_no_context",
-        )
         uploads_dir = config.get("uploads_dir", "incoming")
         if not isinstance(uploads_dir, str) or not uploads_dir.strip():
             raise ConfigError(
@@ -90,31 +98,13 @@ class SlackFilesSettings:
             config_path,
             label="transports.slack.files.deny_globs",
         )
-        max_upload_bytes = _optional_int(
-            config,
-            "max_upload_bytes",
-            20 * 1024 * 1024,
-            config_path,
-            label="transports.slack.files.max_upload_bytes",
-        )
-        max_download_bytes = _optional_int(
-            config,
-            "max_download_bytes",
-            50 * 1024 * 1024,
-            config_path,
-            label="transports.slack.files.max_download_bytes",
-        )
-
         return cls(
             enabled=enabled,
             auto_put=auto_put,
             auto_put_mode=auto_put_mode,
-            allow_no_context=allow_no_context,
             uploads_dir=uploads_dir,
             allowed_user_ids=allowed_user_ids,
             deny_globs=deny_globs,
-            max_upload_bytes=max_upload_bytes,
-            max_download_bytes=max_download_bytes,
         )
 
 
@@ -211,26 +201,6 @@ def _optional_bool(
         return value
     name = label or f"transports.slack.{key}"
     raise ConfigError(f"Invalid `{name}` in {config_path}; expected a boolean.")
-
-
-def _optional_int(
-    config: dict[str, Any],
-    key: str,
-    default: int,
-    config_path: Path,
-    *,
-    label: str | None = None,
-) -> int:
-    if key not in config:
-        return default
-    value = config.get(key)
-    if isinstance(value, bool) or not isinstance(value, int):
-        name = label or f"transports.slack.{key}"
-        raise ConfigError(f"Invalid `{name}` in {config_path}; expected an integer.")
-    if value < 0:
-        name = label or f"transports.slack.{key}"
-        raise ConfigError(f"Invalid `{name}` in {config_path}; must be >= 0.")
-    return value
 
 
 def _optional_str_list(

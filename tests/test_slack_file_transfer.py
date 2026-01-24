@@ -51,17 +51,15 @@ class _FakeClient:
 @dataclass(slots=True)
 class _FakeRuntime:
     run_root: Path
-    resolved_context: RunContext | None = RunContext(project="proj")
 
     def resolve_message(
         self, *, text: str, reply_text=None, ambient_context=None, chat_id=None
     ):
         _ = reply_text, ambient_context, chat_id
-        return SimpleNamespace(prompt=text, context=self.resolved_context)
+        return SimpleNamespace(prompt=text, context=RunContext(project="proj"))
 
     def resolve_run_cwd(self, context: RunContext | None) -> Path | None:
-        if context is None:
-            return None
+        _ = context
         return self.run_root
 
     def format_context_line(self, context: RunContext | None) -> str | None:
@@ -186,46 +184,3 @@ async def test_handle_file_uploads_prompt_mode_returns_prompt(tmp_path) -> None:
     assert "[uploaded files]" in prompt
     assert "- incoming/note.txt" in prompt
 
-
-@pytest.mark.anyio
-async def test_handle_file_uploads_prompt_mode_allows_no_context(
-    tmp_path, monkeypatch
-) -> None:
-    monkeypatch.chdir(tmp_path)
-    fake_client = _FakeClient()
-    transport = FakeTransport()
-    cfg = SimpleNamespace(
-        client=fake_client,
-        runtime=_FakeRuntime(tmp_path, resolved_context=None),
-        files=SlackFilesSettings(
-            enabled=True,
-            auto_put_mode="prompt",
-            allow_no_context=True,
-        ),
-        exec_cfg=ExecBridgeConfig(transport=transport, presenter=object(), final_notify=False),
-    )
-    file = SlackFile(
-        file_id="F1",
-        name="note.txt",
-        size=5,
-        mimetype="text/plain",
-        filetype="txt",
-        url_private="https://example.com",
-        url_private_download=None,
-        mode=None,
-    )
-
-    prompt = await handle_file_uploads(
-        cfg,
-        channel_id="C1",
-        message_ts="1",
-        thread_ts="1",
-        user_id="U1",
-        caption_text="summarize this",
-        files=[file],
-        ambient_context=None,
-    )
-
-    target = tmp_path / "incoming" / "note.txt"
-    assert target.exists()
-    assert prompt is not None

@@ -18,8 +18,6 @@ def test_from_config_valid() -> None:
             "auto_put_mode": "prompt",
             "uploads_dir": "incoming",
             "allowed_user_ids": ["U123"],
-            "max_upload_bytes": 1024,
-            "max_download_bytes": 2048,
         },
     }
     settings = SlackTransportSettings.from_config(cfg, config_path=Path("/tmp/x"))
@@ -72,6 +70,17 @@ def test_from_config_invalid_uploads_dir() -> None:
         "channel_id": "C123",
         "app_token": "xapp-1",
         "files": {"uploads_dir": "/abs/path"},
+    }
+    with pytest.raises(ConfigError):
+        SlackTransportSettings.from_config(cfg, config_path=Path("/tmp/x"))
+
+
+def test_from_config_unknown_files_key() -> None:
+    cfg = {
+        "bot_token": "xoxb-1",
+        "channel_id": "C123",
+        "app_token": "xapp-1",
+        "files": {"max_upload_bytes": 1024},
     }
     with pytest.raises(ConfigError):
         SlackTransportSettings.from_config(cfg, config_path=Path("/tmp/x"))

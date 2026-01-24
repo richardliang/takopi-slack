@@ -265,10 +265,8 @@ async def _resolve_upload_root(
         return None
     if run_root is not None:
         return run_root
-    if not cfg.files.allow_no_context:
-        await reply(text="no project context available for file upload.")
-        return None
-    return Path.cwd()
+    await reply(text="no project context available for file upload.")
+    return None
 
 
 async def _handle_prompt_file_put(
