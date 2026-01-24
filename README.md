@@ -11,6 +11,8 @@ stores per-thread context + resume tokens.
 - slash commands + message shortcuts for overrides and plugin commands
 - cancel button on progress messages
 - message overflow: split or trim long responses
+- file transfer: upload files into a project or fetch files/directories back
+- voice transcription for audio uploads (optional)
 
 ## requirements
 
@@ -19,6 +21,7 @@ stores per-thread context + resume tokens.
 - slack bot token with `chat:write`, `commands`, `app_mentions:read`, and
   the matching history scopes for your channel type (`channels:history`,
   `groups:history`, `im:history`, `mpim:history`)
+- for file transfer or voice transcription, add `files:read` and `files:write`
 - slack app token (`xapp-`) with `connections:write`
 
 ## install
@@ -59,6 +62,14 @@ bot_token = "xoxb-..."
 app_token = "xapp-..."
 channel_id = "C12345678"
 message_overflow = "split"
+voice_transcription = false
+voice_transcription_model = "gpt-4o-mini-transcribe"
+
+[transports.slack.files]
+enabled = false
+uploads_dir = "incoming"
+max_upload_bytes = 20000000
+max_download_bytes = 50000000
 ```
 
 set `message_overflow = "trim"` if you prefer truncation instead of followups.
@@ -115,6 +126,16 @@ command identified by `takopi:<plugin_id>`.
 
 progress messages include a cancel button; enable interactivity & shortcuts so
 clicks are delivered in socket mode.
+
+file transfer (requires `files:read` + `files:write` scopes):
+
+```
+/file put path/to/file.txt
+/file get path/to/dir/
+```
+
+attach a file to `/file put ...` to upload it. audio file uploads can be
+transcribed into prompts when `voice_transcription = true`.
 
 for opinionated gating, see `docs/AGENTS.example.md` and `docs/GATING_README.md`, and
 customize `~/.codex/AGENTS.md`.
