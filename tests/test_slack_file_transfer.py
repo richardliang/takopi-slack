@@ -13,6 +13,7 @@ from takopi_slack_plugin.commands.file_transfer import (
     SlackFile,
     extract_files,
     handle_file_command,
+    handle_file_uploads,
 )
 from tests.slack_fakes import FakeTransport
 
@@ -140,3 +141,43 @@ def test_extract_files() -> None:
     ]
     files = extract_files(payload)
     assert len(files) == 2
+
+
+@pytest.mark.anyio
+async def test_handle_file_uploads_prompt_mode_returns_prompt(tmp_path) -> None:
+    fake_client = _FakeClient()
+    transport = FakeTransport()
+    cfg = SimpleNamespace(
+        client=fake_client,
+        runtime=_FakeRuntime(tmp_path),
+        files=SlackFilesSettings(enabled=True, auto_put_mode="prompt"),
+        exec_cfg=ExecBridgeConfig(transport=transport, presenter=object(), final_notify=False),
+    )
+    file = SlackFile(
+        file_id="F1",
+        name="note.txt",
+        size=5,
+        mimetype="text/plain",
+        filetype="txt",
+        url_private="https://example.com",
+        url_private_download=None,
+        mode=None,
+    )
+
+    prompt = await handle_file_uploads(
+        cfg,
+        channel_id="C1",
+        message_ts="1",
+        thread_ts="1",
+        user_id="U1",
+        caption_text="summarize this",
+        files=[file],
+        ambient_context=RunContext(project="proj"),
+    )
+
+    target = tmp_path / "incoming" / "note.txt"
+    assert target.exists()
+    assert prompt is not None
+    assert "summarize this" in prompt
+    assert "[uploaded files]" in prompt
+    assert "- incoming/note.txt" in prompt

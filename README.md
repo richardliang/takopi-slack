@@ -64,6 +64,8 @@ message_overflow = "split"
 
 [transports.slack.files]
 enabled = false
+auto_put = true
+auto_put_mode = "upload"
 uploads_dir = "incoming"
 max_upload_bytes = 20000000
 max_download_bytes = 50000000
@@ -133,6 +135,8 @@ file transfer (requires `files:read` + `files:write` scopes):
 
 attach a file to `/file put ...` to upload it. audio file uploads can be
 uploaded like any other file.
+when `auto_put_mode = "prompt"`, captions are used as prompts and include an
+`[uploaded files]` annotation.
 
 for opinionated gating, see `docs/AGENTS.example.md` and `docs/GATING_README.md`, and
 customize `~/.codex/AGENTS.md`.

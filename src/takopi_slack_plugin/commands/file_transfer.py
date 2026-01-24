@@ -206,7 +206,7 @@ async def handle_file_uploads(
     caption_text: str,
     files: Sequence[SlackFile],
     ambient_context: RunContext | None,
-) -> bool:
+) -> str | None:
     reply = make_reply(
         cfg,
         channel_id=channel_id,
@@ -214,17 +214,23 @@ async def handle_file_uploads(
         thread_ts=thread_ts,
     )
     if not cfg.files.enabled:
-        return True
+        return None
     if not cfg.files.auto_put:
         await reply(text=FILE_PUT_USAGE)
-        return True
+        return None
     caption = caption_text.strip()
     if cfg.files.auto_put_mode == "prompt" and caption:
-        await reply(text=FILE_PUT_USAGE)
-        return True
+        return await _handle_prompt_file_put(
+            cfg,
+            reply=reply,
+            user_id=user_id,
+            caption=caption,
+            files=files,
+            ambient_context=ambient_context,
+        )
     if caption:
         await reply(text=FILE_PUT_USAGE)
-        return True
+        return None
 
     await _handle_file_put(
         cfg,
@@ -235,7 +241,7 @@ async def handle_file_uploads(
         ambient_context=ambient_context,
         allow_empty=True,
     )
-    return True
+    return None
 
 
 def _check_permissions(cfg: SlackBridgeConfig, user_id: str | None) -> bool:
@@ -244,6 +250,69 @@ def _check_permissions(cfg: SlackBridgeConfig, user_id: str | None) -> bool:
     if user_id is None:
         return False
     return user_id in cfg.files.allowed_user_ids
+
+
+async def _handle_prompt_file_put(
+    cfg: SlackBridgeConfig,
+    *,
+    reply,
+    user_id: str | None,
+    caption: str,
+    files: Sequence[SlackFile],
+    ambient_context: RunContext | None,
+) -> str | None:
+    if not files:
+        await reply(text=FILE_PUT_USAGE)
+        return None
+    if not _check_permissions(cfg, user_id):
+        await reply(text="file transfer is not allowed for this user.")
+        return None
+    try:
+        run_root = cfg.runtime.resolve_run_cwd(ambient_context)
+    except ConfigError as exc:
+        await reply(text=f"error:\n{exc}")
+        return None
+    if run_root is None:
+        await reply(text="no project context available for file upload.")
+        return None
+    require_dir = len(files) > 1
+    base_dir, rel_path, path_error = _resolve_put_paths(
+        None,
+        uploads_dir=cfg.files.uploads_dir,
+        deny_globs=cfg.files.deny_globs,
+        require_dir=require_dir,
+    )
+    if path_error is not None:
+        await reply(text=path_error)
+        return None
+    if require_dir and base_dir is None:
+        await reply(text="upload path must be a directory for multiple files.")
+        return None
+
+    saved, failed = await _save_files(
+        cfg,
+        files=files,
+        run_root=run_root,
+        base_dir=base_dir,
+        rel_path=rel_path,
+        force=False,
+    )
+    if not saved:
+        text = "failed to upload files."
+        failure_text = _format_failures(failed)
+        if failure_text is not None:
+            text = f"{text}\n\nfailed: {failure_text}"
+        await reply(text=text)
+        return None
+    if failed:
+        failure_text = _format_failures(failed)
+        if failure_text is not None:
+            await reply(text=f"some files failed to upload.\n\nfailed: {failure_text}")
+
+    annotation = _format_upload_annotation(saved)
+    if caption:
+        return f"{caption}\n\n{annotation}"
+    return annotation
 
 
 async def _handle_file_put(
@@ -299,21 +368,14 @@ async def _handle_file_put(
         await reply(text="upload path must be a directory for multiple files.")
         return
 
-    saved: list[FileSaveResult] = []
-    failed: list[FileSaveResult] = []
-    for file in files:
-        result = await _save_slack_file(
-            cfg,
-            file=file,
-            run_root=run_root,
-            base_dir=base_dir,
-            rel_path=rel_path,
-            force=force,
-        )
-        if result.error is None:
-            saved.append(result)
-        else:
-            failed.append(result)
+    saved, failed = await _save_files(
+        cfg,
+        files=files,
+        run_root=run_root,
+        base_dir=base_dir,
+        rel_path=rel_path,
+        force=force,
+    )
 
     context_label = _format_context(cfg, resolved.context)
     if saved:
@@ -339,12 +401,55 @@ async def _handle_file_put(
         text = "failed to upload files."
 
     if failed:
-        failures = "; ".join(
-            f"{item.name}: {item.error}" for item in failed if item.error
-        )
-        text = f"{text}\n\nfailed: {failures}"
+        failure_text = _format_failures(failed)
+        if failure_text is not None:
+            text = f"{text}\n\nfailed: {failure_text}"
 
     await reply(text=text)
+
+
+def _format_failures(failed: Sequence[FileSaveResult]) -> str | None:
+    failures = "; ".join(
+        f"{item.name}: {item.error}" for item in failed if item.error
+    )
+    return failures or None
+
+
+def _format_upload_annotation(saved: Sequence[FileSaveResult]) -> str:
+    paths = [
+        item.rel_path.as_posix()
+        for item in saved
+        if item.rel_path is not None
+    ]
+    files_text = "\n".join(f"- {path}" for path in paths)
+    return f"[uploaded files]\n{files_text}"
+
+
+async def _save_files(
+    cfg: SlackBridgeConfig,
+    *,
+    files: Sequence[SlackFile],
+    run_root: Path,
+    base_dir: Path | None,
+    rel_path: Path | None,
+    force: bool,
+) -> tuple[list[FileSaveResult], list[FileSaveResult]]:
+    saved: list[FileSaveResult] = []
+    failed: list[FileSaveResult] = []
+    for file in files:
+        result = await _save_slack_file(
+            cfg,
+            file=file,
+            run_root=run_root,
+            base_dir=base_dir,
+            rel_path=rel_path,
+            force=force,
+        )
+        if result.error is None:
+            saved.append(result)
+        else:
+            failed.append(result)
+    return saved, failed
 
 
 async def _save_slack_file(

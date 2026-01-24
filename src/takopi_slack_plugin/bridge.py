@@ -834,7 +834,7 @@ async def _resolve_prompt_from_media(
             return None
 
     if files:
-        await handle_file_uploads(
+        prompt = await handle_file_uploads(
             cfg,
             channel_id=channel_id,
             message_ts=message.ts,
@@ -844,7 +844,7 @@ async def _resolve_prompt_from_media(
             files=files,
             ambient_context=context,
         )
-        return None
+        return prompt
 
     if not prompt.strip():
         return None
