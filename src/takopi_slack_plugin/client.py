@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import anyio
@@ -40,9 +40,12 @@ class SlackMessage:
     bot_id: str | None
     subtype: str | None
     thread_ts: str | None
+    files: list[dict[str, Any]] = field(default_factory=list)
 
     @classmethod
     def from_api(cls, payload: dict[str, Any]) -> "SlackMessage":
+        files = payload.get("files")
+        files_list = files if isinstance(files, list) else []
         return cls(
             ts=str(payload.get("ts") or ""),
             text=payload.get("text"),
@@ -50,6 +53,7 @@ class SlackMessage:
             bot_id=payload.get("bot_id"),
             subtype=payload.get("subtype"),
             thread_ts=payload.get("thread_ts"),
+            files=[item for item in files_list if isinstance(item, dict)],
         )
 
 
@@ -78,6 +82,8 @@ class SlackClient:
         *,
         params: dict[str, Any] | None = None,
         json: dict[str, Any] | None = None,
+        data: dict[str, Any] | None = None,
+        files: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         return await _request_with_client(
             self._client,
@@ -85,6 +91,8 @@ class SlackClient:
             endpoint,
             params=params,
             json=json,
+            data=data,
+            files=files,
         )
 
     async def auth_test(self) -> SlackAuth:
@@ -185,6 +193,58 @@ class SlackClient:
                 body=response.text,
             )
 
+    async def download_file(self, *, url: str) -> bytes | None:
+        while True:
+            try:
+                response = await self._client.get(url)
+            except httpx.HTTPError as exc:
+                logger.warning("slack.file_download_failed", error=str(exc))
+                return None
+            if response.status_code == 429:
+                retry_after = response.headers.get("Retry-After")
+                try:
+                    delay = int(retry_after) if retry_after is not None else 1
+                except ValueError:
+                    delay = 1
+                logger.info("slack.rate_limited", retry_after=delay)
+                await anyio.sleep(delay)
+                continue
+            if response.status_code >= 400:
+                logger.warning(
+                    "slack.file_download_failed",
+                    status_code=response.status_code,
+                    body=response.text,
+                )
+                return None
+            return response.content
+
+    async def upload_file(
+        self,
+        *,
+        channel_id: str,
+        filename: str,
+        content: bytes,
+        thread_ts: str | None = None,
+        initial_comment: str | None = None,
+    ) -> dict[str, Any]:
+        data: dict[str, Any] = {"channels": channel_id}
+        if thread_ts is not None:
+            data["thread_ts"] = thread_ts
+        if initial_comment:
+            data["initial_comment"] = initial_comment
+        files = {"file": (filename, content)}
+        payload = await self._request(
+            "POST",
+            "/files.upload",
+            data=data,
+            files=files,
+        )
+        file_payload = payload.get("file")
+        if not isinstance(file_payload, dict):
+            raise SlackApiError("Slack upload missing file payload")
+        return file_payload
+
+
 async def _request_with_client(
     client: httpx.AsyncClient,
     method: str,
@@ -192,11 +252,18 @@ async def _request_with_client(
     *,
     params: dict[str, Any] | None = None,
     json: dict[str, Any] | None = None,
+    data: dict[str, Any] | None = None,
+    files: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     while True:
         try:
             response = await client.request(
-                method, endpoint, params=params, json=json
+                method,
+                endpoint,
+                params=params,
+                json=json,
+                data=data,
+                files=files,
             )
         except httpx.HTTPError as exc:
             logger.warning("slack.network_error", error=str(exc))
