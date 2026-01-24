@@ -252,6 +252,25 @@ def _check_permissions(cfg: SlackBridgeConfig, user_id: str | None) -> bool:
     return user_id in cfg.files.allowed_user_ids
 
 
+async def _resolve_upload_root(
+    cfg: SlackBridgeConfig,
+    *,
+    reply,
+    context: RunContext | None,
+) -> Path | None:
+    try:
+        run_root = cfg.runtime.resolve_run_cwd(context)
+    except ConfigError as exc:
+        await reply(text=f"error:\n{exc}")
+        return None
+    if run_root is not None:
+        return run_root
+    if not cfg.files.allow_no_context:
+        await reply(text="no project context available for file upload.")
+        return None
+    return Path.cwd()
+
+
 async def _handle_prompt_file_put(
     cfg: SlackBridgeConfig,
     *,
@@ -267,13 +286,10 @@ async def _handle_prompt_file_put(
     if not _check_permissions(cfg, user_id):
         await reply(text="file transfer is not allowed for this user.")
         return None
-    try:
-        run_root = cfg.runtime.resolve_run_cwd(ambient_context)
-    except ConfigError as exc:
-        await reply(text=f"error:\n{exc}")
-        return None
+    run_root = await _resolve_upload_root(
+        cfg, reply=reply, context=ambient_context
+    )
     if run_root is None:
-        await reply(text="no project context available for file upload.")
         return None
     require_dir = len(files) > 1
     base_dir, rel_path, path_error = _resolve_put_paths(
@@ -340,13 +356,10 @@ async def _handle_file_put(
     except DirectiveError as exc:
         await reply(text=f"error:\n{exc}")
         return
-    try:
-        run_root = cfg.runtime.resolve_run_cwd(resolved.context)
-    except ConfigError as exc:
-        await reply(text=f"error:\n{exc}")
-        return
+    run_root = await _resolve_upload_root(
+        cfg, reply=reply, context=resolved.context
+    )
     if run_root is None:
-        await reply(text="no project context available for file upload.")
         return
     path_value, force, error = parse_file_prompt(
         resolved.prompt, allow_empty=allow_empty

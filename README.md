@@ -66,6 +66,7 @@ message_overflow = "split"
 enabled = false
 auto_put = true
 auto_put_mode = "upload"
+allow_no_context = false
 uploads_dir = "incoming"
 max_upload_bytes = 20000000
 max_download_bytes = 50000000
@@ -137,6 +138,8 @@ attach a file to `/file put ...` to upload it. audio file uploads can be
 uploaded like any other file.
 when `auto_put_mode = "prompt"`, captions are used as prompts and include an
 `[uploaded files]` annotation.
+set `allow_no_context = true` to save uploads into the current working
+directory when no project context is available.
 
 for opinionated gating, see `docs/AGENTS.example.md` and `docs/GATING_README.md`, and
 customize `~/.codex/AGENTS.md`.

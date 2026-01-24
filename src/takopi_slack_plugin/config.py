@@ -20,6 +20,7 @@ class SlackFilesSettings:
     enabled: bool = False
     auto_put: bool = True
     auto_put_mode: Literal["upload", "prompt"] = "upload"
+    allow_no_context: bool = False
     uploads_dir: str = "incoming"
     allowed_user_ids: list[str] = field(default_factory=list)
     deny_globs: list[str] = field(default_factory=lambda: list(DEFAULT_DENY_GLOBS))
@@ -55,6 +56,13 @@ class SlackFilesSettings:
                 "expected 'upload' or 'prompt'."
             )
 
+        allow_no_context = _optional_bool(
+            config,
+            "allow_no_context",
+            False,
+            config_path,
+            label="transports.slack.files.allow_no_context",
+        )
         uploads_dir = config.get("uploads_dir", "incoming")
         if not isinstance(uploads_dir, str) or not uploads_dir.strip():
             raise ConfigError(
@@ -101,6 +109,7 @@ class SlackFilesSettings:
             enabled=enabled,
             auto_put=auto_put,
             auto_put_mode=auto_put_mode,
+            allow_no_context=allow_no_context,
             uploads_dir=uploads_dir,
             allowed_user_ids=allowed_user_ids,
             deny_globs=deny_globs,
