@@ -21,8 +21,8 @@ class _ThreadSession(msgspec.Struct, forbid_unknown_fields=False):
     default_engine: str | None = None
     last_activity_at: float | None = None
     owner_user_id: str | None = None
-    worktree: "_WorktreeRef" | None = None
-    reminder: "_ReminderState" | None = None
+    worktree: _WorktreeRef | None = None
+    reminder: _ReminderState | None = None
 
 
 class _WorktreeRef(msgspec.Struct, forbid_unknown_fields=False):

@@ -1563,22 +1563,6 @@ async def _handle_archive_action(
         thread_id=thread_id,
     )
 
-    user = payload.get("user") or {}
-    user_id = user.get("id") if isinstance(user, dict) else None
-    if (
-        snapshot is not None
-        and snapshot.owner_user_id
-        and isinstance(user_id, str)
-        and user_id != snapshot.owner_user_id
-    ):
-        await _respond_ephemeral(
-            cfg,
-            response_url=_extract_response_url(payload),
-            channel_id=channel_id,
-            text=f"only <@{snapshot.owner_user_id}> can archive this thread.",
-        )
-        return True
-
     if snapshot is not None and snapshot.worktree is not None:
         ok, result = await _delete_worktree_for_snapshot(cfg, snapshot)
         if ok:
