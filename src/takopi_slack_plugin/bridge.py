@@ -53,8 +53,6 @@ MAX_SLACK_TEXT = 3900
 MAX_BLOCK_TEXT = 2800
 ARCHIVE_ACTION_ID = "takopi-slack:archive"
 CANCEL_ACTION_ID = "takopi-slack:cancel"
-STALE_WORKTREE_SNOOZE_ACTION_ID = "takopi-slack:worktree-snooze"
-STALE_WORKTREE_DISMISS_ACTION_ID = "takopi-slack:worktree-dismiss"
 INLINE_COMMAND_RE = re.compile(
     r"(^|\s)(?P<token>/(?P<cmd>[a-z0-9_]{1,32}))",
     re.IGNORECASE,
@@ -141,7 +139,6 @@ class SlackBridgeConfig:
     thread_store: SlackThreadSessionStore | None = None
     stale_worktree_reminder: bool = False
     stale_worktree_hours: float = 24.0
-    stale_worktree_snooze_hours: float = 24.0
     stale_worktree_check_interval_s: float = 600.0
 
 
@@ -573,49 +570,6 @@ def _build_archive_blocks(
                     "action_id": ARCHIVE_ACTION_ID,
                     "value": value,
                 }
-            ],
-        }
-    )
-    return blocks
-
-
-def _build_stale_worktree_blocks(
-    text: str,
-    *,
-    thread_id: str,
-    snooze_hours: float,
-    include_actions: bool = True,
-) -> list[dict[str, Any]]:
-    body = _trim_block_text(text)
-    blocks: list[dict[str, Any]] = [
-        {"type": "section", "text": {"type": "mrkdwn", "text": body}}
-    ]
-    if not include_actions:
-        return blocks
-    snooze_label = f"snooze {_format_hours_label(snooze_hours)}"
-    blocks.append(
-        {
-            "type": "actions",
-            "elements": [
-                {
-                    "type": "button",
-                    "text": {"type": "plain_text", "text": "archive"},
-                    "action_id": ARCHIVE_ACTION_ID,
-                    "style": "danger",
-                    "value": thread_id,
-                },
-                {
-                    "type": "button",
-                    "text": {"type": "plain_text", "text": snooze_label},
-                    "action_id": STALE_WORKTREE_SNOOZE_ACTION_ID,
-                    "value": thread_id,
-                },
-                {
-                    "type": "button",
-                    "text": {"type": "plain_text", "text": "dismiss"},
-                    "action_id": STALE_WORKTREE_DISMISS_ACTION_ID,
-                    "value": thread_id,
-                },
             ],
         }
     )
@@ -1445,8 +1399,6 @@ async def _handle_interactive(
     if payload_type == "block_actions":
         if await _handle_archive_action(cfg, payload):
             return
-        if await _handle_stale_worktree_action(cfg, payload):
-            return
         await _handle_cancel_action(cfg, payload, running_tasks)
         return
     if payload_type in {"message_action", "shortcut"}:
@@ -1514,31 +1466,6 @@ def _extract_action_message_ts(payload: dict[str, Any]) -> str | None:
         if ts:
             return ts
     return None
-
-
-async def _update_stale_worktree_message(
-    cfg: SlackBridgeConfig,
-    *,
-    channel_id: str,
-    message_ts: str | None,
-    thread_id: str,
-    text: str,
-    include_actions: bool,
-) -> None:
-    if message_ts is None:
-        return
-    blocks = _build_stale_worktree_blocks(
-        text,
-        thread_id=thread_id,
-        snooze_hours=cfg.stale_worktree_snooze_hours,
-        include_actions=include_actions,
-    )
-    await cfg.client.update_message(
-        channel_id=channel_id,
-        ts=message_ts,
-        text=text,
-        blocks=blocks,
-    )
 
 
 async def _update_archive_message(
@@ -1768,95 +1695,6 @@ async def _delete_worktree_for_snapshot(
         return False, f"git worktree remove failed: {details}"
 
     return True, "worktree deleted."
-
-
-async def _handle_stale_worktree_action(
-    cfg: SlackBridgeConfig,
-    payload: dict[str, Any],
-) -> bool:
-    actions = payload.get("actions")
-    action = _extract_block_action(
-        actions,
-        action_ids={
-            STALE_WORKTREE_SNOOZE_ACTION_ID,
-            STALE_WORKTREE_DISMISS_ACTION_ID,
-        },
-    )
-    if action is None:
-        return False
-    if cfg.thread_store is None:
-        return True
-    channel = payload.get("channel") or {}
-    channel_id = channel.get("id") if isinstance(channel, dict) else None
-    if not isinstance(channel_id, str):
-        return True
-    thread_id = _extract_action_thread_id(payload, action)
-    if thread_id is None:
-        await _respond_ephemeral(
-            cfg,
-            response_url=_extract_response_url(payload),
-            channel_id=channel_id,
-            text="missing thread id for this action.",
-        )
-        return True
-    message_ts = _extract_action_message_ts(payload)
-    snapshot = await cfg.thread_store.get_thread_snapshot(
-        channel_id=channel_id,
-        thread_id=thread_id,
-    )
-    if snapshot is None or snapshot.worktree is None:
-        await _update_stale_worktree_message(
-            cfg,
-            channel_id=channel_id,
-            message_ts=message_ts,
-            thread_id=thread_id,
-            text="worktree info not found for this thread.",
-            include_actions=False,
-        )
-        return True
-
-    action_id = action.get("action_id")
-    if action_id == STALE_WORKTREE_SNOOZE_ACTION_ID:
-        snoozed_until = time.time() + cfg.stale_worktree_snooze_hours * 3600.0
-        await cfg.thread_store.set_reminder_snoozed(
-            channel_id=channel_id,
-            thread_id=thread_id,
-            snoozed_until=snoozed_until,
-        )
-        text = (
-            f"{_format_worktree_ref(snapshot.worktree)} snoozed for "
-            f"{_format_hours_label(cfg.stale_worktree_snooze_hours)}."
-        )
-        await _update_stale_worktree_message(
-            cfg,
-            channel_id=channel_id,
-            message_ts=message_ts,
-            thread_id=thread_id,
-            text=text,
-            include_actions=True,
-        )
-        return True
-
-    if action_id == STALE_WORKTREE_DISMISS_ACTION_ID:
-        await cfg.thread_store.set_reminder_dismissed(
-            channel_id=channel_id,
-            thread_id=thread_id,
-            dismissed_at=time.time(),
-        )
-        text = (
-            f"{_format_worktree_ref(snapshot.worktree)} reminder dismissed."
-        )
-        await _update_stale_worktree_message(
-            cfg,
-            channel_id=channel_id,
-            message_ts=message_ts,
-            thread_id=thread_id,
-            text=text,
-            include_actions=False,
-        )
-        return True
-
-    return False
 
 
 async def _handle_cancel_action(
@@ -2112,10 +1950,9 @@ async def _send_stale_worktree_reminder(
         hours=cfg.stale_worktree_hours,
         owner_user_id=snapshot.owner_user_id,
     )
-    blocks = _build_stale_worktree_blocks(
+    blocks = _build_archive_blocks(
         text,
         thread_id=snapshot.thread_id,
-        snooze_hours=cfg.stale_worktree_snooze_hours,
     )
     message = RenderedMessage(text=text)
     message.extra["blocks"] = blocks
@@ -2129,7 +1966,6 @@ async def _send_stale_worktree_reminder(
     await cfg.thread_store.set_reminder_sent(
         channel_id=snapshot.channel_id,
         thread_id=snapshot.thread_id,
-        message_ts=str(sent.message_id),
         now=now,
     )
 
@@ -2158,23 +1994,12 @@ async def _run_stale_worktree_reminders(cfg: SlackBridgeConfig) -> None:
             if now < snapshot.last_activity_at + stale_s:
                 continue
             reminder = snapshot.reminder
-            if reminder is not None:
-                if (
-                    reminder.dismissed_at is not None
-                    and reminder.dismissed_at >= snapshot.last_activity_at
-                ):
-                    continue
-                if (
-                    reminder.snoozed_until is not None
-                    and now < reminder.snoozed_until
-                ):
-                    continue
-                if (
-                    reminder.snoozed_until is None
-                    and reminder.sent_at is not None
-                    and reminder.sent_at >= snapshot.last_activity_at
-                ):
-                    continue
+            if (
+                reminder is not None
+                and reminder.sent_at is not None
+                and reminder.sent_at >= snapshot.last_activity_at
+            ):
+                continue
             try:
                 await _send_stale_worktree_reminder(cfg, snapshot, now=now)
             except Exception as exc:

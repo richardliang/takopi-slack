@@ -117,7 +117,6 @@ class SlackTransportSettings:
     files: SlackFilesSettings = field(default_factory=SlackFilesSettings)
     stale_worktree_reminder: bool = False
     stale_worktree_hours: float = 24.0
-    stale_worktree_snooze_hours: float = 24.0
     stale_worktree_check_interval_s: float = 600.0
 
     @classmethod
@@ -166,13 +165,6 @@ class SlackTransportSettings:
             config_path=config_path,
             min_value=0.5,
         )
-        stale_worktree_snooze_hours = _require_number(
-            config,
-            "stale_worktree_snooze_hours",
-            default=24.0,
-            config_path=config_path,
-            min_value=0.5,
-        )
         stale_worktree_check_interval_s = _require_number(
             config,
             "stale_worktree_check_interval_s",
@@ -189,7 +181,6 @@ class SlackTransportSettings:
             files=files,
             stale_worktree_reminder=stale_worktree_reminder,
             stale_worktree_hours=stale_worktree_hours,
-            stale_worktree_snooze_hours=stale_worktree_snooze_hours,
             stale_worktree_check_interval_s=stale_worktree_check_interval_s,
         )
 

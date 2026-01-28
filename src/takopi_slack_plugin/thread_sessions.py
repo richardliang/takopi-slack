@@ -32,9 +32,6 @@ class _WorktreeRef(msgspec.Struct, forbid_unknown_fields=False):
 
 class _ReminderState(msgspec.Struct, forbid_unknown_fields=False):
     sent_at: float | None = None
-    message_ts: str | None = None
-    dismissed_at: float | None = None
-    snoozed_until: float | None = None
 
 
 class _ThreadSessionsState(msgspec.Struct, forbid_unknown_fields=False):
@@ -51,9 +48,6 @@ class WorktreeSnapshot:
 @dataclass(frozen=True, slots=True)
 class ReminderSnapshot:
     sent_at: float | None
-    message_ts: str | None
-    dismissed_at: float | None
-    snoozed_until: float | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -125,9 +119,6 @@ class SlackThreadSessionStore(JsonStateStore[_ThreadSessionsState]):
         if session.reminder is not None:
             reminder = ReminderSnapshot(
                 sent_at=session.reminder.sent_at,
-                message_ts=session.reminder.message_ts,
-                dismissed_at=session.reminder.dismissed_at,
-                snoozed_until=session.reminder.snoozed_until,
             )
         return ThreadSnapshot(
             channel_id=channel_id,
@@ -191,9 +182,6 @@ class SlackThreadSessionStore(JsonStateStore[_ThreadSessionsState]):
                 reminder = _ReminderState()
                 session.reminder = reminder
             reminder.sent_at = None
-            reminder.message_ts = None
-            reminder.dismissed_at = None
-            reminder.snoozed_until = None
             self._save_locked()
 
     async def set_reminder_sent(
@@ -201,7 +189,6 @@ class SlackThreadSessionStore(JsonStateStore[_ThreadSessionsState]):
         *,
         channel_id: str,
         thread_id: str,
-        message_ts: str,
         now: float,
     ) -> None:
         key = self._thread_key(channel_id, thread_id)
@@ -213,46 +200,6 @@ class SlackThreadSessionStore(JsonStateStore[_ThreadSessionsState]):
                 reminder = _ReminderState()
                 session.reminder = reminder
             reminder.sent_at = now
-            reminder.message_ts = message_ts
-            reminder.dismissed_at = None
-            reminder.snoozed_until = None
-            self._save_locked()
-
-    async def set_reminder_snoozed(
-        self,
-        *,
-        channel_id: str,
-        thread_id: str,
-        snoozed_until: float,
-    ) -> None:
-        key = self._thread_key(channel_id, thread_id)
-        async with self._lock:
-            self._reload_locked_if_needed()
-            session = self._get_or_create(key)
-            reminder = session.reminder
-            if reminder is None:
-                reminder = _ReminderState()
-                session.reminder = reminder
-            reminder.snoozed_until = snoozed_until
-            reminder.dismissed_at = None
-            self._save_locked()
-
-    async def set_reminder_dismissed(
-        self,
-        *,
-        channel_id: str,
-        thread_id: str,
-        dismissed_at: float,
-    ) -> None:
-        key = self._thread_key(channel_id, thread_id)
-        async with self._lock:
-            self._reload_locked_if_needed()
-            session = self._get_or_create(key)
-            reminder = session.reminder
-            if reminder is None:
-                reminder = _ReminderState()
-                session.reminder = reminder
-            reminder.dismissed_at = dismissed_at
             self._save_locked()
 
     async def clear_worktree(self, *, channel_id: str, thread_id: str) -> None:

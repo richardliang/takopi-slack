@@ -11,7 +11,7 @@ stores per-thread context + resume tokens.
 - slash commands + message shortcuts for overrides and plugin commands
 - cancel button on progress messages
 - archive button on responses (deletes worktree or resets to origin/main)
-- optional stale worktree reminders prompting archive with snooze/dismiss
+- optional stale worktree reminders prompting archive
 - message overflow: split or trim long responses
 
 ## requirements
@@ -63,7 +63,6 @@ channel_id = "C12345678"
 message_overflow = "split"
 stale_worktree_reminder = true
 stale_worktree_hours = 24
-stale_worktree_snooze_hours = 24
 stale_worktree_check_interval_s = 600
 
 [transports.slack.files]
