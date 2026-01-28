@@ -51,6 +51,7 @@ logger = get_logger(__name__)
 
 MAX_SLACK_TEXT = 3900
 MAX_BLOCK_TEXT = 2800
+ARCHIVE_ACTION_ID = "takopi-slack:archive"
 CANCEL_ACTION_ID = "takopi-slack:cancel"
 STALE_WORKTREE_DELETE_ACTION_ID = "takopi-slack:worktree-delete"
 STALE_WORKTREE_SNOOZE_ACTION_ID = "takopi-slack:worktree-snooze"
@@ -117,6 +118,7 @@ class SlackPresenter:
             chunks = _split_text(text, self._max_chars)
             message = RenderedMessage(text=chunks[0])
             message.extra["clear_blocks"] = True
+            message.extra["show_archive"] = True
             if len(chunks) > 1:
                 message.extra["followups"] = [
                     RenderedMessage(text=chunk) for chunk in chunks[1:]
@@ -124,6 +126,7 @@ class SlackPresenter:
             return message
         rendered = RenderedMessage(text=_trim_text(text, self._max_chars))
         rendered.extra["clear_blocks"] = True
+        rendered.extra["show_archive"] = True
         return rendered
 
 
@@ -177,7 +180,11 @@ class SlackTransport:
         return ("delete", channel_id, ts)
 
     def _prepare_blocks(
-        self, message: RenderedMessage, *, allow_clear: bool
+        self,
+        message: RenderedMessage,
+        *,
+        allow_clear: bool,
+        thread_id: str | None,
     ) -> list[dict[str, Any]] | None:
         extra = message.extra
         blocks = extra.get("blocks")
@@ -185,6 +192,8 @@ class SlackTransport:
             return blocks
         if extra.get("show_cancel"):
             return _build_cancel_blocks(message.text)
+        if extra.get("show_archive"):
+            return _build_archive_blocks(message.text, thread_id=thread_id)
         if allow_clear and extra.get("clear_blocks"):
             return []
         return None
@@ -205,7 +214,9 @@ class SlackTransport:
         if options is not None and options.thread_id is not None:
             thread_ts = str(options.thread_id)
         followups = self._extract_followups(message)
-        blocks = self._prepare_blocks(message, allow_clear=False)
+        blocks = self._prepare_blocks(
+            message, allow_clear=False, thread_id=thread_ts
+        )
         sent = await self._enqueue_send(
             channel_id=channel,
             text=message.text,
@@ -247,7 +258,9 @@ class SlackTransport:
         message: RenderedMessage,
         wait: bool = True,
     ) -> MessageRef | None:
-        blocks = self._prepare_blocks(message, allow_clear=True)
+        blocks = self._prepare_blocks(
+            message, allow_clear=True, thread_id=ref.thread_id
+        )
         updated = await self._enqueue_edit(
             channel_id=str(ref.channel_id),
             ts=str(ref.message_id),
@@ -536,6 +549,35 @@ def _format_hours_label(hours: float) -> str:
     if hours.is_integer():
         return f"{int(hours)}h"
     return f"{hours:g}h"
+
+
+def _build_archive_blocks(
+    text: str,
+    *,
+    thread_id: str | None,
+    include_actions: bool = True,
+) -> list[dict[str, Any]]:
+    body = _trim_block_text(text)
+    value = thread_id or ""
+    blocks: list[dict[str, Any]] = [
+        {"type": "section", "text": {"type": "mrkdwn", "text": body}}
+    ]
+    if not include_actions:
+        return blocks
+    blocks.append(
+        {
+            "type": "actions",
+            "elements": [
+                {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "archive"},
+                    "action_id": ARCHIVE_ACTION_ID,
+                    "value": value,
+                }
+            ],
+        }
+    )
+    return blocks
 
 
 def _build_stale_worktree_blocks(
@@ -1402,6 +1444,8 @@ async def _handle_interactive(
 ) -> None:
     payload_type = payload.get("type")
     if payload_type == "block_actions":
+        if await _handle_archive_action(cfg, payload):
+            return
         if await _handle_stale_worktree_action(cfg, payload):
             return
         await _handle_cancel_action(cfg, payload, running_tasks)
@@ -1423,6 +1467,13 @@ def _extract_block_action(
         action_id = action.get("action_id")
         if isinstance(action_id, str) and action_id in action_ids:
             return action
+    return None
+
+
+def _extract_response_url(payload: dict[str, Any]) -> str | None:
+    response_url = payload.get("response_url")
+    if isinstance(response_url, str) and response_url:
+        return response_url
     return None
 
 
@@ -1489,6 +1540,171 @@ async def _update_stale_worktree_message(
         text=text,
         blocks=blocks,
     )
+
+
+async def _update_archive_message(
+    cfg: SlackBridgeConfig,
+    *,
+    channel_id: str,
+    message_ts: str | None,
+    thread_id: str,
+    text: str,
+    include_actions: bool,
+) -> None:
+    if message_ts is None:
+        return
+    blocks = _build_archive_blocks(
+        text,
+        thread_id=thread_id,
+        include_actions=include_actions,
+    )
+    await cfg.client.update_message(
+        channel_id=channel_id,
+        ts=message_ts,
+        text=text,
+        blocks=blocks,
+    )
+
+
+async def _reset_project_to_origin_main(
+    cfg: SlackBridgeConfig,
+    *,
+    project: str,
+) -> tuple[bool, str]:
+    try:
+        base_path = cfg.runtime.resolve_run_cwd(
+            RunContext(project=project, branch=None)
+        )
+    except ConfigError as exc:
+        return False, f"could not resolve project path: {exc}"
+    path = _safely_resolve_path(base_path)
+    if path is None or not path.exists():
+        return False, "project path not found on disk."
+
+    code, stdout, stderr = await _run_git(
+        ["git", "-C", str(path), "fetch", "origin", "main"],
+        cwd=path,
+    )
+    if code != 0:
+        details = stderr.strip() or stdout.strip()
+        return False, f"git fetch failed: {details}"
+
+    code, stdout, stderr = await _run_git(
+        ["git", "-C", str(path), "reset", "--hard", "origin/main"],
+        cwd=path,
+    )
+    if code != 0:
+        details = stderr.strip() or stdout.strip()
+        return False, f"git reset failed: {details}"
+
+    code, stdout, stderr = await _run_git(
+        ["git", "-C", str(path), "clean", "-fd"],
+        cwd=path,
+    )
+    if code != 0:
+        details = stderr.strip() or stdout.strip()
+        return False, f"git clean failed: {details}"
+
+    return True, "project reset to origin/main."
+
+
+async def _handle_archive_action(
+    cfg: SlackBridgeConfig,
+    payload: dict[str, Any],
+) -> bool:
+    actions = payload.get("actions")
+    action = _extract_block_action(actions, action_ids={ARCHIVE_ACTION_ID})
+    if action is None:
+        return False
+    if cfg.thread_store is None:
+        return True
+    channel = payload.get("channel") or {}
+    channel_id = channel.get("id") if isinstance(channel, dict) else None
+    if not isinstance(channel_id, str):
+        return True
+    thread_id = _extract_action_thread_id(payload, action)
+    if thread_id is None:
+        await _respond_ephemeral(
+            cfg,
+            response_url=_extract_response_url(payload),
+            channel_id=channel_id,
+            text="missing thread id for archive action.",
+        )
+        return True
+    message_ts = _extract_action_message_ts(payload)
+    snapshot = await cfg.thread_store.get_thread_snapshot(
+        channel_id=channel_id,
+        thread_id=thread_id,
+    )
+
+    user = payload.get("user") or {}
+    user_id = user.get("id") if isinstance(user, dict) else None
+    if (
+        snapshot is not None
+        and snapshot.owner_user_id
+        and isinstance(user_id, str)
+        and user_id != snapshot.owner_user_id
+    ):
+        await _respond_ephemeral(
+            cfg,
+            response_url=_extract_response_url(payload),
+            channel_id=channel_id,
+            text=f"only <@{snapshot.owner_user_id}> can archive this thread.",
+        )
+        return True
+
+    if snapshot is not None and snapshot.worktree is not None:
+        ok, result = await _delete_worktree_for_snapshot(cfg, snapshot)
+        if ok:
+            await cfg.thread_store.clear_worktree(
+                channel_id=channel_id,
+                thread_id=thread_id,
+            )
+        text = (
+            f"archive: {_format_worktree_ref(snapshot.worktree)} {result}"
+            if ok
+            else f"archive failed for {_format_worktree_ref(snapshot.worktree)}: {result}"
+        )
+        await _update_archive_message(
+            cfg,
+            channel_id=channel_id,
+            message_ts=message_ts,
+            thread_id=thread_id,
+            text=text,
+            include_actions=not ok,
+        )
+        return True
+
+    context = await cfg.thread_store.get_context(
+        channel_id=channel_id,
+        thread_id=thread_id,
+    )
+    if context is None or not context.project:
+        await _update_archive_message(
+            cfg,
+            channel_id=channel_id,
+            message_ts=message_ts,
+            thread_id=thread_id,
+            text="archive failed: no project context found for this thread.",
+            include_actions=False,
+        )
+        return True
+
+    ok, result = await _reset_project_to_origin_main(cfg, project=context.project)
+    text = (
+        f"archive: `/{context.project}` {result}"
+        if ok
+        else f"archive failed for `/{context.project}`: {result}"
+    )
+    await _update_archive_message(
+        cfg,
+        channel_id=channel_id,
+        message_ts=message_ts,
+        thread_id=thread_id,
+        text=text,
+        include_actions=not ok,
+    )
+    return True
 
 
 async def _delete_worktree_for_snapshot(
@@ -1580,9 +1796,7 @@ async def _handle_stale_worktree_action(
     if thread_id is None:
         await _respond_ephemeral(
             cfg,
-            response_url=payload.get("response_url")
-            if isinstance(payload.get("response_url"), str)
-            else None,
+            response_url=_extract_response_url(payload),
             channel_id=channel_id,
             text="missing thread id for this action.",
         )
@@ -1615,9 +1829,7 @@ async def _handle_stale_worktree_action(
         ):
             await _respond_ephemeral(
                 cfg,
-                response_url=payload.get("response_url")
-                if isinstance(payload.get("response_url"), str)
-                else None,
+                response_url=_extract_response_url(payload),
                 channel_id=channel_id,
                 text=f"only <@{snapshot.owner_user_id}> can delete this worktree.",
             )

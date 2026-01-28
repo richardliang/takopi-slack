@@ -10,6 +10,7 @@ stores per-thread context + resume tokens.
   `~/.takopi/slack_thread_sessions_state.json`
 - slash commands + message shortcuts for overrides and plugin commands
 - cancel button on progress messages
+- archive button on responses (deletes worktree or resets to origin/main)
 - optional stale worktree reminders with delete/snooze buttons
 - message overflow: split or trim long responses
 
