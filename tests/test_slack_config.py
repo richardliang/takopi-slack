@@ -111,3 +111,4 @@ def test_from_config_duplicate_action_buttons() -> None:
     }
     with pytest.raises(ConfigError):
         SlackTransportSettings.from_config(cfg, config_path=Path("/tmp/x"))
+
