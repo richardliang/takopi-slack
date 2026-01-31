@@ -1,4 +1,5 @@
 from takopi_slack_plugin.bridge import (
+    ARCHIVE_ACTION_ID,
     MAX_BLOCK_TEXT,
     SlackPresenter,
     _build_archive_blocks,
@@ -9,6 +10,7 @@ from takopi_slack_plugin.bridge import (
     _trim_block_text,
     _trim_text,
 )
+from takopi_slack_plugin.config import SlackActionButton
 
 
 class _State:
@@ -53,6 +55,28 @@ def test_build_archive_blocks_splits_long_text() -> None:
     sections = [block for block in blocks if block["type"] == "section"]
     assert "".join(block["text"]["text"] for block in sections) == text
     assert blocks[-1]["type"] == "actions"
+
+
+def test_build_archive_blocks_includes_custom_actions() -> None:
+    buttons = [
+        SlackActionButton(
+            id="preview",
+            label="preview",
+            command="preview",
+            args="start",
+            style="primary",
+        )
+    ]
+    blocks = _build_archive_blocks(
+        "hello",
+        thread_id="123",
+        action_buttons=buttons,
+    )
+    actions = blocks[-1]
+    elements = actions["elements"]
+    assert elements[0]["action_id"] == buttons[0].action_id
+    assert elements[0]["style"] == "primary"
+    assert elements[-1]["action_id"] == ARCHIVE_ACTION_ID
 
 
 def test_presenter_split_followups() -> None:

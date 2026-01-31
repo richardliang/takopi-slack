@@ -127,7 +127,10 @@ class SlackBackend(TransportBackend):
         )
         startup_msg = _build_startup_message(runtime, startup_pwd=os.getcwd())
         client = SlackClient(settings.bot_token)
-        transport = SlackTransport(client)
+        transport = SlackTransport(
+            client,
+            action_buttons=settings.action_buttons,
+        )
         presenter = SlackPresenter(message_overflow=settings.message_overflow)
         exec_cfg = ExecBridgeConfig(
             transport=transport,
@@ -145,6 +148,7 @@ class SlackBackend(TransportBackend):
             startup_msg=startup_msg,
             exec_cfg=exec_cfg,
             files=settings.files,
+            action_buttons=settings.action_buttons,
             thread_store=thread_store,
             stale_worktree_reminder=settings.stale_worktree_reminder,
             stale_worktree_hours=settings.stale_worktree_hours,

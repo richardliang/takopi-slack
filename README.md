@@ -11,6 +11,7 @@ stores per-thread context + resume tokens.
 - slash commands + message shortcuts for overrides and plugin commands
 - cancel button on progress messages
 - archive button on responses (deletes worktree or resets to origin/main)
+- configurable action buttons next to archive (mapped to takopi commands)
 - optional stale worktree reminders prompting archive (default 24h)
 - message overflow: split or trim long responses
 
@@ -64,6 +65,9 @@ message_overflow = "split"
 stale_worktree_reminder = true
 stale_worktree_hours = 24
 stale_worktree_check_interval_s = 600
+action_buttons = [
+  { id = "preview", label = "Preview", command = "preview", args = "start", style = "primary" },
+]
 
 [transports.slack.files]
 enabled = false
@@ -73,6 +77,12 @@ uploads_dir = "incoming"
 ```
 
 set `message_overflow = "trim"` if you prefer truncation instead of followups.
+
+`action_buttons` entries map to `/<command> <args>` and show inline next to the
+archive button. `command` is the takopi command id (you can also pass
+`takopi-foo` and it will normalize to `foo`). `label` and `args` are optional
+(defaults: `label = command`, `args = ""`). `style` may be `primary` or
+`danger`. limit is 4 buttons.
 
 if you use a plugin allowlist, enable this distribution:
 
