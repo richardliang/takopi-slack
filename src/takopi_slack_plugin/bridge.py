@@ -137,6 +137,7 @@ class SlackBridgeConfig:
     exec_cfg: ExecBridgeConfig
     files: SlackFilesSettings
     action_buttons: list[SlackActionButton] = field(default_factory=list)
+    github_user_tokens: dict[str, str] = field(default_factory=dict)
     thread_store: SlackThreadSessionStore | None = None
     stale_worktree_reminder: bool = False
     stale_worktree_hours: float = 24.0
@@ -868,6 +869,7 @@ async def _handle_slack_message(
             engine_overrides_resolver=command_context.engine_overrides_resolver
             if command_context is not None
             else None,
+            env_overrides=_resolve_github_env(cfg, message.user),
         )
         if handled:
             return
@@ -916,6 +918,7 @@ async def _handle_slack_message(
         thread_id=thread_id,
         on_thread_known=on_thread_known,
         run_options=run_options,
+        env_overrides=_resolve_github_env(cfg, message.user),
     )
 
 
@@ -1057,6 +1060,17 @@ def _parse_thread_ts(value: object) -> str | None:
     return None
 
 
+def _resolve_github_env(
+    cfg: SlackBridgeConfig, user_id: str | None
+) -> dict[str, str] | None:
+    if not user_id:
+        return None
+    token = cfg.github_user_tokens.get(user_id)
+    if not token:
+        return None
+    return {"GITHUB_TOKEN": token, "GH_TOKEN": token}
+
+
 async def _resolve_run_options(
     thread_store: SlackThreadSessionStore | None,
     *,
@@ -1180,6 +1194,11 @@ async def _handle_slash_command(
         )
         return
 
+    user_id = payload.get("user_id")
+    if not isinstance(user_id, str):
+        user_id = None
+    env_overrides = _resolve_github_env(cfg, user_id)
+
     thread_store = cfg.thread_store
     if command_id == "file":
         command_context = None
@@ -1189,9 +1208,6 @@ async def _handle_slash_command(
                 channel_id=channel_id,
                 thread_id=thread_id,
             )
-        user_id = payload.get("user_id")
-        if not isinstance(user_id, str):
-            user_id = None
         await handle_file_command(
             cfg,
             channel_id=channel_id,
@@ -1417,6 +1433,7 @@ async def _handle_slash_command(
         default_engine_override=command_context.default_engine_override,
         default_context=command_context.default_context,
         engine_overrides_resolver=command_context.engine_overrides_resolver,
+        env_overrides=env_overrides,
     )
     if not handled:
         await _respond_ephemeral(
@@ -1748,6 +1765,11 @@ async def _handle_custom_action(
     if thread_ts is None:
         thread_ts = _extract_payload_thread_id(payload)
     thread_id = _session_thread_id(channel_id, thread_ts)
+    user = payload.get("user") or {}
+    user_id = user.get("id") if isinstance(user, dict) else None
+    if not isinstance(user_id, str):
+        user_id = None
+    env_overrides = _resolve_github_env(cfg, user_id)
     command_context = await _resolve_command_context(
         cfg,
         channel_id=channel_id,
@@ -1796,6 +1818,7 @@ async def _handle_custom_action(
         default_engine_override=command_context.default_engine_override,
         default_context=command_context.default_context,
         engine_overrides_resolver=command_context.engine_overrides_resolver,
+        env_overrides=env_overrides,
     )
     if not handled:
         await _respond_ephemeral(
@@ -1965,6 +1988,11 @@ async def _handle_shortcut(
         )
 
     thread_id = _session_thread_id(channel_id, thread_ts)
+    user = payload.get("user") or {}
+    user_id = user.get("id") if isinstance(user, dict) else None
+    if not isinstance(user_id, str):
+        user_id = None
+    env_overrides = _resolve_github_env(cfg, user_id)
     command_context = await _resolve_command_context(
         cfg,
         channel_id=channel_id,
@@ -1998,6 +2026,7 @@ async def _handle_shortcut(
         default_engine_override=command_context.default_engine_override,
         default_context=command_context.default_context,
         engine_overrides_resolver=command_context.engine_overrides_resolver,
+        env_overrides=env_overrides,
     )
     if not handled:
         await _respond_ephemeral(
