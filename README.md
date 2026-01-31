@@ -66,12 +66,8 @@ stale_worktree_reminder = true
 stale_worktree_hours = 24
 stale_worktree_check_interval_s = 600
 action_buttons = [
-  { id = "preview", label = "Preview", command = "preview", args = "start", style = "primary" },
+  { id = "preview", label = "Preview", command = "preview", args = "start 3000 --dev \"pnpm --filter @zkp2p/web dev -- --host 127.0.0.1 --port {port}\"", style = "primary" },
 ]
-preview_repos = {
-  "zkp2p-mobile" = { port = 8081, instructions = "start mobile app dev server" },
-  "zkp2p-clients" = { port = 3000, instructions = "start web subrepo dev server only" },
-}
 
 [transports.slack.files]
 enabled = false
@@ -86,12 +82,9 @@ set `message_overflow = "trim"` if you prefer truncation instead of followups.
 archive button. `command` is the takopi command id (you can also pass
 `takopi-foo` and it will normalize to `foo`). `label` and `args` are optional
 (defaults: `label = command`, `args = ""`). `style` may be `primary` or
-`danger`. limit is 4 buttons.
-
-`preview_repos` lets the preview action button append repo-specific arguments.
-When the command is `preview`, the port and instructions for the current
-`/project` are appended to the button args (case-insensitive match on project
-name).
+`danger`. limit is 4 buttons. The preview command expects a port argument, so
+include it in `args` if you want the Preview button to work without typing
+`/preview start <port>` manually.
 
 if you use a plugin allowlist, enable this distribution:
 
