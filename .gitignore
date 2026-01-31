@@ -1,2 +1,4 @@
 CONTINUITY.md
 .worktrees/
+__pycache__/
+*.pyc
