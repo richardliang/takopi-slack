@@ -4,9 +4,9 @@ import json
 import re
 import subprocess
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Awaitable, Callable
+from typing import Any, Awaitable, Callable, Sequence
 from urllib.parse import parse_qs
 
 import anyio
@@ -32,7 +32,7 @@ from takopi.runners.run_options import EngineRunOptions
 
 from .client import SlackApiError, SlackClient, SlackMessage, open_socket_url
 from .commands import dispatch_command, split_command_args
-from .config import SlackFilesSettings
+from .config import SlackActionButton, SlackFilesSettings
 from .engine import run_engine, send_plain
 from .commands.file_transfer import (
     extract_files,
@@ -136,6 +136,7 @@ class SlackBridgeConfig:
     startup_msg: str
     exec_cfg: ExecBridgeConfig
     files: SlackFilesSettings
+    action_buttons: list[SlackActionButton] = field(default_factory=list)
     thread_store: SlackThreadSessionStore | None = None
     stale_worktree_reminder: bool = False
     stale_worktree_hours: float = 24.0
@@ -151,10 +152,16 @@ class CommandContext:
 
 
 class SlackTransport:
-    def __init__(self, client: SlackClient) -> None:
+    def __init__(
+        self,
+        client: SlackClient,
+        *,
+        action_buttons: Sequence[SlackActionButton] | None = None,
+    ) -> None:
         self._client = client
         self._outbox = SlackOutbox()
         self._send_counter = 0
+        self._action_buttons = list(action_buttons or [])
 
     @staticmethod
     def _extract_followups(message: RenderedMessage) -> list[RenderedMessage]:
@@ -189,7 +196,11 @@ class SlackTransport:
         if extra.get("show_cancel"):
             return _build_cancel_blocks(message.text)
         if extra.get("show_archive"):
-            return _build_archive_blocks(message.text, thread_id=thread_id)
+            return _build_archive_blocks(
+                message.text,
+                thread_id=thread_id,
+                action_buttons=self._action_buttons,
+            )
         if allow_clear and extra.get("clear_blocks"):
             return []
         return None
@@ -562,6 +573,7 @@ def _build_archive_blocks(
     text: str,
     *,
     thread_id: str | None,
+    action_buttons: Sequence[SlackActionButton] | None = None,
     include_actions: bool = True,
 ) -> list[dict[str, Any]]:
     value = thread_id or ""
@@ -572,17 +584,30 @@ def _build_archive_blocks(
     ]
     if not include_actions:
         return blocks
+    buttons = list(action_buttons or [])
+    elements: list[dict[str, Any]] = []
+    for button in buttons:
+        element = {
+            "type": "button",
+            "text": {"type": "plain_text", "text": button.label},
+            "action_id": button.action_id,
+            "value": value,
+        }
+        if button.style:
+            element["style"] = button.style
+        elements.append(element)
+    elements.append(
+        {
+            "type": "button",
+            "text": {"type": "plain_text", "text": "archive"},
+            "action_id": ARCHIVE_ACTION_ID,
+            "value": value,
+        }
+    )
     blocks.append(
         {
             "type": "actions",
-            "elements": [
-                {
-                    "type": "button",
-                    "text": {"type": "plain_text", "text": "archive"},
-                    "action_id": ARCHIVE_ACTION_ID,
-                    "value": value,
-                }
-            ],
+            "elements": elements,
         }
     )
     return blocks
@@ -1411,6 +1436,8 @@ async def _handle_interactive(
     if payload_type == "block_actions":
         if await _handle_archive_action(cfg, payload):
             return
+        if await _handle_custom_action(cfg, payload, running_tasks):
+            return
         await _handle_cancel_action(cfg, payload, running_tasks)
         return
     if payload_type in {"message_action", "shortcut"}:
@@ -1511,6 +1538,7 @@ async def _send_archive_message(
     blocks = _build_archive_blocks(
         text,
         thread_id=thread_id,
+        action_buttons=cfg.action_buttons,
         include_actions=include_actions,
     )
     await cfg.client.post_message(
@@ -1538,6 +1566,7 @@ async def _clear_archive_actions(
         blocks=_build_archive_blocks(
             text,
             thread_id=thread_id,
+            action_buttons=cfg.action_buttons,
             include_actions=False,
         ),
     )
@@ -1688,6 +1717,96 @@ async def _handle_archive_action(
     return True
 
 
+async def _handle_custom_action(
+    cfg: SlackBridgeConfig,
+    payload: dict[str, Any],
+    running_tasks: RunningTasks,
+) -> bool:
+    if not cfg.action_buttons:
+        return False
+    action_map = {button.action_id: button for button in cfg.action_buttons}
+    action = _extract_block_action(
+        payload.get("actions"),
+        action_ids=set(action_map),
+    )
+    if action is None:
+        return False
+
+    channel = payload.get("channel") or {}
+    channel_id = channel.get("id") if isinstance(channel, dict) else None
+    if not isinstance(channel_id, str):
+        return True
+
+    action_id = action.get("action_id")
+    if not isinstance(action_id, str):
+        return True
+    button = action_map.get(action_id)
+    if button is None:
+        return True
+
+    thread_ts = _extract_action_thread_id(payload, action)
+    if thread_ts is None:
+        thread_ts = _extract_payload_thread_id(payload)
+    thread_id = _session_thread_id(channel_id, thread_ts)
+    command_context = await _resolve_command_context(
+        cfg,
+        channel_id=channel_id,
+        thread_id=thread_id,
+    )
+    if command_context is None:
+        return True
+
+    response_url = payload.get("response_url")
+    if isinstance(response_url, str) and response_url:
+        await _respond_ephemeral(
+            cfg,
+            response_url=response_url,
+            channel_id=channel_id,
+            text="running...",
+        )
+
+    message = payload.get("message") or {}
+    message_text = message.get("text") if isinstance(message, dict) else None
+    message_ts = _extract_action_message_ts(payload)
+    reply_ref = None
+    reply_text = None
+    if isinstance(message_ts, str):
+        reply_ref = MessageRef(
+            channel_id=channel_id,
+            message_id=message_ts,
+            thread_id=thread_ts,
+        )
+        if isinstance(message_text, str):
+            reply_text = message_text
+
+    args_text = button.args
+    full_text = f"/{button.command} {args_text}".strip()
+    handled = await dispatch_command(
+        cfg,
+        command_id=button.command,
+        args_text=args_text,
+        full_text=full_text,
+        channel_id=channel_id,
+        message_id=message_ts if isinstance(message_ts, str) else "0",
+        thread_id=thread_ts,
+        reply_ref=reply_ref,
+        reply_text=reply_text,
+        running_tasks=running_tasks,
+        on_thread_known=command_context.on_thread_known,
+        default_engine_override=command_context.default_engine_override,
+        default_context=command_context.default_context,
+        engine_overrides_resolver=command_context.engine_overrides_resolver,
+    )
+    if not handled:
+        await _respond_ephemeral(
+            cfg,
+            response_url=response_url if isinstance(response_url, str) else None,
+            channel_id=channel_id,
+            text=f"unknown command `{button.command}`.",
+        )
+    return True
+
+
 async def _delete_worktree_for_snapshot(
     cfg: SlackBridgeConfig,
     snapshot: ThreadSnapshot,
@@ -1800,6 +1919,7 @@ async def _handle_cancel_action(
         blocks=_build_archive_blocks(
             text,
             thread_id=thread_id,
+            action_buttons=cfg.action_buttons,
             include_actions=True,
         ),
     )
@@ -2014,6 +2134,7 @@ async def _send_stale_worktree_reminder(
     blocks = _build_archive_blocks(
         text,
         thread_id=snapshot.thread_id,
+        action_buttons=cfg.action_buttons,
     )
     message = RenderedMessage(text=text)
     message.extra["blocks"] = blocks
