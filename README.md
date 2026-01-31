@@ -109,7 +109,7 @@ the engine.
 example (inline command):
 
 ```
-@takopi /zkp2p-clients @feat/login /preview start 3000 --dev "pnpm --filter @zkp2p/web dev -- --host 127.0.0.1 --port {port}"
+@takopi /zkp2p-clients @feat/login /preview start <port> --dev "pnpm --filter @zkp2p/web dev -- --host 127.0.0.1 --port <port>"
 ```
 
 example (worktree):
