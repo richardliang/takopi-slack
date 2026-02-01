@@ -7,7 +7,7 @@ import subprocess
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Sequence
+from typing import Any, Awaitable, Callable
 from urllib.parse import parse_qs
 
 import anyio
@@ -33,7 +33,7 @@ from takopi.runners.run_options import EngineRunOptions
 
 from .client import SlackApiError, SlackClient, SlackMessage, open_socket_url
 from .commands import dispatch_command, split_command_args
-from .config import SlackActionButton, SlackActionHandler, SlackFilesSettings
+from .config import SlackActionHandler, SlackFilesSettings
 from .engine import run_engine, send_plain
 from .commands.file_transfer import (
     extract_files,
@@ -137,14 +137,12 @@ class SlackBridgeConfig:
     startup_msg: str
     exec_cfg: ExecBridgeConfig
     files: SlackFilesSettings
-    action_buttons: list[SlackActionButton] = field(default_factory=list)
     action_handlers: list[SlackActionHandler] = field(default_factory=list)
     action_blocks: list[dict[str, Any]] | None = None
     thread_store: SlackThreadSessionStore | None = None
     stale_worktree_reminder: bool = False
     stale_worktree_hours: float = 24.0
     stale_worktree_check_interval_s: float = 600.0
-    show_running: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -160,13 +158,11 @@ class SlackTransport:
         self,
         client: SlackClient,
         *,
-        action_buttons: Sequence[SlackActionButton] | None = None,
         action_blocks: list[dict[str, Any]] | None = None,
     ) -> None:
         self._client = client
         self._outbox = SlackOutbox()
         self._send_counter = 0
-        self._action_buttons = list(action_buttons or [])
         self._action_blocks = action_blocks
 
     @staticmethod
@@ -205,7 +201,6 @@ class SlackTransport:
             return _build_archive_blocks(
                 message.text,
                 thread_id=thread_id,
-                action_buttons=self._action_buttons,
                 action_blocks=self._action_blocks,
             )
         if allow_clear and extra.get("clear_blocks"):
@@ -580,11 +575,9 @@ def _build_archive_blocks(
     text: str,
     *,
     thread_id: str | None,
-    action_buttons: Sequence[SlackActionButton] | None = None,
     action_blocks: list[dict[str, Any]] | None = None,
     include_actions: bool = True,
 ) -> list[dict[str, Any]]:
-    value = thread_id or ""
     sections = _split_block_text(text)
     blocks: list[dict[str, Any]] = [
         {"type": "section", "text": {"type": "mrkdwn", "text": chunk}}
@@ -595,32 +588,6 @@ def _build_archive_blocks(
     if action_blocks is not None:
         blocks.extend(copy.deepcopy(action_blocks))
         return blocks
-    buttons = list(action_buttons or [])
-    elements: list[dict[str, Any]] = []
-    for button in buttons:
-        element = {
-            "type": "button",
-            "text": {"type": "plain_text", "text": button.label},
-            "action_id": button.action_id,
-            "value": value,
-        }
-        if button.style:
-            element["style"] = button.style
-        elements.append(element)
-    elements.append(
-        {
-            "type": "button",
-            "text": {"type": "plain_text", "text": "archive"},
-            "action_id": ARCHIVE_ACTION_ID,
-            "value": value,
-        }
-    )
-    blocks.append(
-        {
-            "type": "actions",
-            "elements": elements,
-        }
-    )
     return blocks
 
 
@@ -1397,14 +1364,6 @@ async def _handle_slash_command(
         )
         return
 
-    if response_url and cfg.show_running:
-        await _respond_ephemeral(
-            cfg,
-            response_url=response_url,
-            channel_id=channel_id,
-            text="running...",
-        )
-
     command_context = await _resolve_command_context(
         cfg,
         channel_id=channel_id,
@@ -1553,7 +1512,6 @@ async def _send_archive_message(
     blocks = _build_archive_blocks(
         text,
         thread_id=thread_id,
-        action_buttons=cfg.action_buttons,
         action_blocks=cfg.action_blocks,
         include_actions=include_actions,
     )
@@ -1582,7 +1540,6 @@ async def _clear_archive_actions(
         blocks=_build_archive_blocks(
             text,
             thread_id=thread_id,
-            action_buttons=cfg.action_buttons,
             action_blocks=cfg.action_blocks,
             include_actions=False,
         ),
@@ -1740,8 +1697,6 @@ async def _handle_custom_action(
     running_tasks: RunningTasks,
 ) -> bool:
     action_map: dict[str, tuple[str, str]] = {}
-    for button in cfg.action_buttons:
-        action_map[button.action_id] = (button.command, button.args)
     for handler in cfg.action_handlers:
         action_map[handler.action_id] = (handler.command, handler.args)
     if not action_map:
@@ -1779,16 +1734,6 @@ async def _handle_custom_action(
         return True
 
     response_url = payload.get("response_url")
-    if isinstance(response_url, str) and response_url and cfg.show_running:
-        await _respond_ephemeral(
-            cfg,
-            response_url=response_url,
-            channel_id=channel_id,
-            text="running...",
-            replace_original=False,
-            delete_original=False,
-        )
-
     message = payload.get("message") or {}
     message_text = message.get("text") if isinstance(message, dict) else None
     message_ts = _extract_action_message_ts(payload)
@@ -1942,7 +1887,6 @@ async def _handle_cancel_action(
         blocks=_build_archive_blocks(
             text,
             thread_id=thread_id,
-            action_buttons=cfg.action_buttons,
             action_blocks=cfg.action_blocks,
             include_actions=True,
         ),
@@ -1979,14 +1923,6 @@ async def _handle_shortcut(
     if not command_id:
         return
     args_text = message_text.strip()
-
-    if response_url and cfg.show_running:
-        await _respond_ephemeral(
-            cfg,
-            response_url=response_url,
-            channel_id=channel_id,
-            text="running...",
-        )
 
     thread_id = _session_thread_id(channel_id, thread_ts)
     command_context = await _resolve_command_context(
@@ -2158,7 +2094,6 @@ async def _send_stale_worktree_reminder(
     blocks = _build_archive_blocks(
         text,
         thread_id=snapshot.thread_id,
-        action_buttons=cfg.action_buttons,
         action_blocks=cfg.action_blocks,
     )
     message = RenderedMessage(text=text)
