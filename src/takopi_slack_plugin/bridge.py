@@ -1661,7 +1661,9 @@ async def _handle_archive_action(
     else:
         label = "this thread"
 
-    prompt = f"Archive {label}? This will delete the worktree."
+    prompt = (
+        f"Archive {label}? This will delete the worktree and discard uncommitted changes."
+    )
     await cfg.client.post_message(
         channel_id=channel_id,
         text=prompt,
@@ -1830,7 +1832,9 @@ async def _archive_thread(
         thread_id=thread_id,
     )
     if snapshot is not None and snapshot.worktree is not None:
-        ok, result = await _delete_worktree_for_snapshot(cfg, snapshot)
+        ok, result = await _delete_worktree_for_snapshot(
+            cfg, snapshot, force_cleanup=True
+        )
         if ok:
             await cfg.thread_store.clear_worktree(
                 channel_id=channel_id,
@@ -1912,6 +1916,8 @@ async def _finalize_archive_message(
 async def _delete_worktree_for_snapshot(
     cfg: SlackBridgeConfig,
     snapshot: ThreadSnapshot,
+    *,
+    force_cleanup: bool,
 ) -> tuple[bool, str]:
     worktree = snapshot.worktree
     if worktree is None:
@@ -1960,7 +1966,22 @@ async def _delete_worktree_for_snapshot(
         details = stderr.strip() or stdout.strip()
         return False, f"could not check worktree status: {details}"
     if stdout.strip():
-        return False, "worktree has uncommitted changes; clean it before deleting."
+        if not force_cleanup:
+            return False, "worktree has uncommitted changes; clean it before deleting."
+        code, stdout, stderr = await _run_git(
+            ["git", "-C", str(path), "reset", "--hard", "HEAD"],
+            cwd=path,
+        )
+        if code != 0:
+            details = stderr.strip() or stdout.strip()
+            return False, f"git reset failed: {details}"
+        code, stdout, stderr = await _run_git(
+            ["git", "-C", str(path), "clean", "-fd"],
+            cwd=path,
+        )
+        if code != 0:
+            details = stderr.strip() or stdout.strip()
+            return False, f"git clean failed: {details}"
 
     code, stdout, stderr = await _run_git(
         ["git", "-C", str(path), "worktree", "remove", str(path)],
@@ -1970,6 +1991,8 @@ async def _delete_worktree_for_snapshot(
         details = stderr.strip() or stdout.strip()
         return False, f"git worktree remove failed: {details}"
 
+    if force_cleanup:
+        return True, "worktree deleted (local changes discarded)."
     return True, "worktree deleted."
 
 
