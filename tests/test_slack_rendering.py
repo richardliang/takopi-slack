@@ -79,6 +79,28 @@ def test_build_archive_blocks_includes_custom_actions() -> None:
     assert elements[-1]["action_id"] == ARCHIVE_ACTION_ID
 
 
+def test_build_archive_blocks_uses_action_blocks() -> None:
+    custom = [
+        {
+            "type": "actions",
+            "elements": [
+                {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "go"},
+                    "action_id": "takopi-slack:action:go",
+                }
+            ],
+        }
+    ]
+    blocks = _build_archive_blocks(
+        "hello",
+        thread_id="123",
+        action_blocks=custom,
+    )
+    assert blocks[-1]["type"] == "actions"
+    assert blocks[-1]["elements"][0]["action_id"] == "takopi-slack:action:go"
+
+
 def test_presenter_split_followups() -> None:
     presenter = SlackPresenter(message_overflow="split", max_chars=5)
     state = _State(engine="codex")

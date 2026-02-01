@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -30,6 +31,13 @@ class SlackActionButton:
     @property
     def action_id(self) -> str:
         return f"takopi-slack:action:{self.id}"
+
+
+@dataclass(frozen=True, slots=True)
+class SlackActionHandler:
+    action_id: str
+    command: str
+    args: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -133,9 +141,12 @@ class SlackTransportSettings:
     message_overflow: Literal["trim", "split"] = "split"
     files: SlackFilesSettings = field(default_factory=SlackFilesSettings)
     action_buttons: list[SlackActionButton] = field(default_factory=list)
+    action_handlers: list[SlackActionHandler] = field(default_factory=list)
+    action_blocks: list[dict[str, Any]] | None = None
     stale_worktree_reminder: bool = False
     stale_worktree_hours: float = 24.0
     stale_worktree_check_interval_s: float = 600.0
+    show_running: bool = True
 
     @classmethod
     def from_config(
@@ -174,6 +185,16 @@ class SlackTransportSettings:
             "action_buttons",
             config_path,
         )
+        action_handlers = _optional_action_handlers(
+            config,
+            "action_handlers",
+            config_path,
+        )
+        action_blocks = _optional_action_blocks(
+            config,
+            "action_blocks",
+            config_path,
+        )
 
         stale_worktree_reminder = config.get("stale_worktree_reminder", False)
         if not isinstance(stale_worktree_reminder, bool):
@@ -196,6 +217,13 @@ class SlackTransportSettings:
             config_path=config_path,
             min_value=30.0,
         )
+        show_running = _optional_bool(
+            config,
+            "show_running",
+            True,
+            config_path,
+            label="transports.slack.show_running",
+        )
 
         return cls(
             bot_token=bot_token,
@@ -204,9 +232,12 @@ class SlackTransportSettings:
             message_overflow=message_overflow,
             files=files,
             action_buttons=action_buttons,
+            action_handlers=action_handlers,
+            action_blocks=action_blocks,
             stale_worktree_reminder=stale_worktree_reminder,
             stale_worktree_hours=stale_worktree_hours,
             stale_worktree_check_interval_s=stale_worktree_check_interval_s,
+            show_running=show_running,
         )
 
 
@@ -387,6 +418,149 @@ def _optional_action_buttons(
 
     return buttons
 
+
+def _optional_action_handlers(
+    config: dict[str, Any],
+    key: str,
+    config_path: Path,
+) -> list[SlackActionHandler]:
+    if key not in config:
+        return []
+    value = config.get(key)
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ConfigError(
+            f"Invalid `transports.slack.{key}` in {config_path}; "
+            "expected a list of tables."
+        )
+    handlers: list[SlackActionHandler] = []
+    seen_ids: set[str] = set()
+    for idx, raw in enumerate(value, start=1):
+        if not isinstance(raw, dict):
+            raise ConfigError(
+                f"Invalid `transports.slack.{key}[{idx}]` in {config_path}; "
+                "expected a table."
+            )
+        allowed = {"action_id", "id", "command", "args"}
+        unknown_keys = set(raw) - allowed
+        if unknown_keys:
+            unknown = ", ".join(sorted(unknown_keys))
+            raise ConfigError(
+                f"Invalid `transports.slack.{key}[{idx}]` in {config_path}; "
+                f"unknown keys: {unknown}."
+            )
+
+        command = raw.get("command")
+        if not isinstance(command, str) or not command.strip():
+            raise ConfigError(
+                f"Invalid `transports.slack.{key}[{idx}].command` in {config_path}; "
+                "expected a non-empty string."
+            )
+        command = command.strip().lstrip("/").lower()
+        for prefix in ("takopi-", "takopi_"):
+            if command.startswith(prefix) and len(command) > len(prefix):
+                command = command[len(prefix) :]
+                break
+
+        action_id_value = raw.get("action_id")
+        if action_id_value is None:
+            action_id_value = raw.get("id")
+            if not isinstance(action_id_value, str) or not action_id_value.strip():
+                raise ConfigError(
+                    f"Invalid `transports.slack.{key}[{idx}].action_id` in {config_path}; "
+                    "expected a non-empty string."
+                )
+            action_id = _slugify_action_id(action_id_value)
+            action_id = f"takopi-slack:action:{action_id}"
+        else:
+            if not isinstance(action_id_value, str) or not action_id_value.strip():
+                raise ConfigError(
+                    f"Invalid `transports.slack.{key}[{idx}].action_id` in {config_path}; "
+                    "expected a non-empty string."
+                )
+            action_id = action_id_value.strip()
+
+        if action_id in seen_ids:
+            raise ConfigError(
+                f"Invalid `transports.slack.{key}[{idx}].action_id` in {config_path}; "
+                "duplicate action_id."
+            )
+        seen_ids.add(action_id)
+
+        args = raw.get("args", "")
+        if not isinstance(args, str):
+            raise ConfigError(
+                f"Invalid `transports.slack.{key}[{idx}].args` in {config_path}; "
+                "expected a string."
+            )
+        args = args.strip()
+
+        handlers.append(
+            SlackActionHandler(
+                action_id=action_id,
+                command=command,
+                args=args,
+            )
+        )
+
+    return handlers
+
+
+def _optional_action_blocks(
+    config: dict[str, Any],
+    key: str,
+    config_path: Path,
+) -> list[dict[str, Any]] | None:
+    if key not in config:
+        return None
+    raw = config.get(key)
+    if raw is None:
+        return None
+    label = f"transports.slack.{key}"
+    if isinstance(raw, list):
+        return _coerce_block_list(raw, label, config_path)
+    if isinstance(raw, dict):
+        return _coerce_block_list(raw, label, config_path)
+    if not isinstance(raw, str):
+        raise ConfigError(f"Invalid `{label}` in {config_path}; expected JSON or a list.")
+    text = raw.strip()
+    if not text:
+        return None
+    if text.startswith("@"):
+        path = Path(text[1:]).expanduser()
+        if not path.is_absolute():
+            path = config_path.parent / path
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError as exc:
+            raise ConfigError(
+                f"Invalid `{label}` in {config_path}; could not read {path}: {exc}."
+            ) from exc
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise ConfigError(
+            f"Invalid `{label}` in {config_path}; expected valid JSON."
+        ) from exc
+    return _coerce_block_list(parsed, label, config_path)
+
+
+def _coerce_block_list(
+    value: Any,
+    label: str,
+    config_path: Path,
+) -> list[dict[str, Any]]:
+    blocks = value
+    if isinstance(blocks, dict):
+        blocks = blocks.get("blocks")
+    if not isinstance(blocks, list) or not all(
+        isinstance(item, dict) for item in blocks
+    ):
+        raise ConfigError(
+            f"Invalid `{label}` in {config_path}; expected a list of block objects."
+        )
+    return list(blocks)
 
 def _slugify_action_id(value: str) -> str:
     cleaned = value.strip().lower()
