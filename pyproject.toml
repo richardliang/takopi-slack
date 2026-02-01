@@ -1,6 +1,6 @@
 [project]
 name = "takopi-slack-plugin"
-version = "0.2.9"
+version = "0.2.10"
 description = "Slack transport plugin for Takopi."
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -27,6 +27,9 @@ Homepage = "https://zkp2p.xyz"
 
 [project.entry-points."takopi.transport_backends"]
 slack = "takopi_slack_plugin.backend:BACKEND"
+
+[project.entry-points."takopi.command_backends"]
+server = "takopi_slack_plugin.server_command:BACKEND"
 
 [build-system]
 requires = ["uv_build>=0.9.18,<0.10.0"]

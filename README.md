@@ -67,6 +67,9 @@ stale_worktree_hours = 24
 stale_worktree_check_interval_s = 600
 action_buttons = [
   { id = "preview", label = "Preview", command = "preview", args = "start", style = "primary" },
+  { id = "preview-stop", label = "Stop Preview", command = "preview", args = "stop", style = "danger" },
+  { id = "server-start", label = "Start Server", command = "server", args = "start" },
+  { id = "server-stop", label = "Stop Server", command = "server", args = "stop", style = "danger" },
 ]
 
 [transports.slack.files]
@@ -74,6 +77,16 @@ enabled = false
 auto_put = true
 auto_put_mode = "upload"
 uploads_dir = "incoming"
+
+[plugins.server]
+host = "localhost"
+start_port = 5173
+start_instruction = "use pnpm dev -- --host localhost --port 5173"
+stop_instruction = "stop the dev server for port 5173"
+
+[plugins.server.projects.myapp]
+start_port = 3000
+start_instruction = "start web subrepo dev server only"
 ```
 
 set `message_overflow = "trim"` if you prefer truncation instead of followups.
@@ -83,6 +96,10 @@ archive button. `command` is the takopi command id (you can also pass
 `takopi-foo` and it will normalize to `foo`). `label` and `args` are optional
 (defaults: `label = command`, `args = ""`). `style` may be `primary` or
 `danger`. limit is 4 buttons.
+
+The slack plugin also ships a `/server` command that forwards a standardized
+start/stop prompt to the engine. Configure it under `[plugins.server]` if you
+want per-project defaults.
 
 if you use a plugin allowlist, enable this distribution:
 
@@ -109,7 +126,7 @@ the engine.
 example (inline command):
 
 ```
-@takopi /zkp2p-clients @feat/login /preview start <port> --dev "pnpm --filter @zkp2p/web dev -- --host 127.0.0.1 --port <port>"
+@takopi /zkp2p-clients @feat/login /preview start 5173
 ```
 
 example (worktree):
